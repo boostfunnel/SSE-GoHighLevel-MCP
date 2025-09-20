@@ -21,7 +21,7 @@
     "start:stdio": "node dist/server.js",
     "start:http": "node dist/http-server.js",
     "vercel-build": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
     "start:sse": "node dist/sse-simple.js"
   },
   "keywords": [
