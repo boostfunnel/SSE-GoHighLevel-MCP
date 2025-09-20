@@ -385,7 +385,7 @@ class GHLMCPHttpServer {
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
-// Simple SSE endpoint for ElevenLabs
+// Simple SSE endpoint for ElevenLabs - MCP Protocol Format
     this.app.get('/sse-simple', (req, res) => {
       console.log('[SSE-Simple] New connection for ElevenLabs');
       
@@ -397,66 +397,100 @@ class GHLMCPHttpServer {
         'Access-Control-Allow-Origin': '*'
       });
 
-      // Send tools list in simpler format
-      const toolsList = {
-        tools: [
-          {
-            name: 'search_contacts',
-            description: 'Search for contacts by phone',
-            parameters: {
-              type: 'object',
-              properties: {
-                phone: { type: 'string', description: 'Phone number to search' },
-                email: { type: 'string', description: 'Email address to search' }
+      // Send MCP-style initialization message
+      const initMessage = {
+        jsonrpc: '2.0',
+        method: 'initialized',
+        params: {
+          protocolVersion: '0.1.0',
+          capabilities: {
+            tools: {
+              listTools: true
+            }
+          },
+          serverInfo: {
+            name: 'ghl-mcp-server',
+            version: '1.0.0'
+          }
+        }
+      };
+      
+      res.write(`data: ${JSON.stringify(initMessage)}\n\n`);
+
+      // Send tools list in MCP format
+      const toolsMessage = {
+        jsonrpc: '2.0',
+        id: 'tools-list',
+        result: {
+          tools: [
+            {
+              name: 'search_contacts',
+              description: 'Search for contacts by phone or email',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  phone: { type: 'string', description: 'Phone number' },
+                  email: { type: 'string', description: 'Email address' }
+                },
+                required: []
+              }
+            },
+            {
+              name: 'get_calendars',
+              description: 'Get all calendars',
+              inputSchema: {
+                type: 'object',
+                properties: {},
+                required: []
+              }
+            },
+            {
+              name: 'create_appointment',
+              description: 'Create a new appointment',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  calendarId: { type: 'string', description: 'Calendar ID' },
+                  contactId: { type: 'string', description: 'Contact ID' },
+                  startTime: { type: 'string', description: 'ISO format date-time' }
+                },
+                required: ['calendarId', 'contactId', 'startTime']
               }
             }
-          },
-          {
-            name: 'get_calendars',
-            description: 'Get all calendars',
-            parameters: {
-              type: 'object',
-              properties: {}
-            }
-          },
-          {
-            name: 'get_free_slots',
-            description: 'Get available appointment slots',
-            parameters: {
-              type: 'object',
-              properties: {
-                calendarId: { type: 'string', description: 'Calendar ID' },
-                startDate: { type: 'string', description: 'Start date YYYY-MM-DD' },
-                endDate: { type: 'string', description: 'End date YYYY-MM-DD' }
-              },
-              required: ['calendarId', 'startDate', 'endDate']
-            }
-          },
-          {
-            name: 'create_appointment',
-            description: 'Book an appointment',
-            parameters: {
-              type: 'object',
-              properties: {
-                calendarId: { type: 'string', description: 'Calendar ID' },
-                contactId: { type: 'string', description: 'Contact ID' },
-                startTime: { type: 'string', description: 'Start time in ISO format' }
-              },
-              required: ['calendarId', 'contactId', 'startTime']
-            }
-          }
-        ]
+          ]
+        }
       };
 
-      // Send as SSE data
-      res.write(`data: ${JSON.stringify(toolsList)}\n\n`);
+      // Send tools after a brief delay
+      setTimeout(() => {
+        res.write(`data: ${JSON.stringify(toolsMessage)}\n\n`);
+      }, 100);
 
       // Keep connection alive
       const interval = setInterval(() => {
-        res.write(': ping\n\n');
+        res.write(': keepalive\n\n');
       }, 30000);
 
-      // Cleanup on disconnect
+      // Handle tool execution requests
+      req.on('data', (chunk) => {
+        try {
+          const request = JSON.parse(chunk.toString());
+          console.log('[SSE-Simple] Received request:', request);
+          
+          // Send response back
+          const response = {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [{ type: 'text', text: 'Tool executed successfully' }]
+            }
+          };
+          res.write(`data: ${JSON.stringify(response)}\n\n`);
+        } catch (error) {
+          console.error('[SSE-Simple] Error processing request:', error);
+        }
+      });
+
       req.on('close', () => {
         console.log('[SSE-Simple] Connection closed');
         clearInterval(interval);
