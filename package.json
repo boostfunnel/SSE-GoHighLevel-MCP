@@ -22,7 +22,8 @@
     "start:http": "node dist/http-server.js",
     "vercel-build": "npm run build",
     "prepublishOnly": "npm run build",
-    "start:sse": "node dist/sse-simple.js"
+    "start:sse": "node dist/sse-simple.js",
+    "start:elevenlabs": "node dist/http-server.js"
   },
   "keywords": [
     "mcp",
