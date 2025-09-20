@@ -385,7 +385,83 @@ class GHLMCPHttpServer {
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
+// Simple SSE endpoint for ElevenLabs
+    this.app.get('/sse-simple', (req, res) => {
+      console.log('[SSE-Simple] New connection for ElevenLabs');
+      
+      // Set SSE headers
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+      });
 
+      // Send tools list in simpler format
+      const toolsList = {
+        tools: [
+          {
+            name: 'search_contacts',
+            description: 'Search for contacts by phone',
+            parameters: {
+              type: 'object',
+              properties: {
+                phone: { type: 'string', description: 'Phone number to search' },
+                email: { type: 'string', description: 'Email address to search' }
+              }
+            }
+          },
+          {
+            name: 'get_calendars',
+            description: 'Get all calendars',
+            parameters: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'get_free_slots',
+            description: 'Get available appointment slots',
+            parameters: {
+              type: 'object',
+              properties: {
+                calendarId: { type: 'string', description: 'Calendar ID' },
+                startDate: { type: 'string', description: 'Start date YYYY-MM-DD' },
+                endDate: { type: 'string', description: 'End date YYYY-MM-DD' }
+              },
+              required: ['calendarId', 'startDate', 'endDate']
+            }
+          },
+          {
+            name: 'create_appointment',
+            description: 'Book an appointment',
+            parameters: {
+              type: 'object',
+              properties: {
+                calendarId: { type: 'string', description: 'Calendar ID' },
+                contactId: { type: 'string', description: 'Contact ID' },
+                startTime: { type: 'string', description: 'Start time in ISO format' }
+              },
+              required: ['calendarId', 'contactId', 'startTime']
+            }
+          }
+        ]
+      };
+
+      // Send as SSE data
+      res.write(`data: ${JSON.stringify(toolsList)}\n\n`);
+
+      // Keep connection alive
+      const interval = setInterval(() => {
+        res.write(': ping\n\n');
+      }, 30000);
+
+      // Cleanup on disconnect
+      req.on('close', () => {
+        console.log('[SSE-Simple] Connection closed');
+        clearInterval(interval);
+      });
+    });
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
       res.json({
