@@ -388,110 +388,28 @@ class GHLMCPHttpServer {
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
 
-    // ElevenLabs MCP endpoint - Proper MCP protocol flow
-    const handleElevenLabsMCP = async (req: express.Request, res: express.Response) => {
-      const sessionId = req.query.sessionId || 'elevenlabs';
-      console.log(`[ElevenLabs MCP] New connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+    // ElevenLabs MCP endpoint - Use the same working SSE handler
+    // Since ElevenLabs uses the same MCP protocol as Claude Desktop, we can reuse the handler
+    const handleElevenLabsSSE = async (req: express.Request, res: express.Response) => {
+      // Add ElevenLabs-specific logging
+      const originalLog = console.log;
+      console.log = (...args) => {
+        if (args[0]?.includes('MCP')) {
+          originalLog(`[ElevenLabs ${args[0].substring(1)}`, ...args.slice(1));
+        } else {
+          originalLog(...args);
+        }
+      };
       
-      try {
-        // Set SSE headers for ElevenLabs
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Allow-Credentials': 'true'
-        });
-
-        let initialized = false;
-        let messageId = 1;
-
-        // Handle incoming messages from ElevenLabs
-        const handleMessage = (message: any) => {
-          console.log(`[ElevenLabs MCP] Received message:`, JSON.stringify(message, null, 2));
-          
-          if (message.method === 'initialize') {
-            // Respond to initialize request
-            const initializeResponse = {
-              jsonrpc: '2.0',
-              id: message.id,
-              result: {
-                protocolVersion: '2024-11-05',
-                capabilities: {
-                  tools: {}
-                },
-                serverInfo: {
-                  name: 'ghl-mcp-server',
-                  version: '1.0.0'
-                }
-              }
-            };
-            
-            res.write(`data: ${JSON.stringify(initializeResponse)}\n\n`);
-            console.log(`[ElevenLabs MCP] Sent initialize response for session: ${sessionId}`);
-            initialized = true;
-            
-          } else if (message.method === 'tools/list') {
-            // Respond to tools/list request
-            const toolsResponse = {
-              jsonrpc: '2.0',
-              id: message.id,
-              result: {
-                tools: this.getAllToolDefinitions()
-              }
-            };
-            
-            res.write(`data: ${JSON.stringify(toolsResponse)}\n\n`);
-            console.log(`[ElevenLabs MCP] Sent tools list (${this.getAllToolDefinitions().length} tools) for session: ${sessionId}`);
-            
-          } else if (message.method === 'tools/call') {
-            // Handle tool execution
-            this.handleElevenLabsToolCall(message, res);
-          }
-        };
-
-        // Handle POST requests (JSON-RPC messages)
-        if (req.method === 'POST') {
-          let body = '';
-          req.on('data', (chunk) => {
-            body += chunk.toString();
-          });
-          
-          req.on('end', () => {
-            try {
-              const message = JSON.parse(body);
-              handleMessage(message);
-            } catch (error) {
-              console.error(`[ElevenLabs MCP] Error processing message:`, error);
-            }
-          });
-        }
-
-        // Keep connection alive with ping
-        const keepAlive = setInterval(() => {
-          if (initialized) {
-            res.write(`data: {"type": "ping", "timestamp": "${new Date().toISOString()}"}\n\n`);
-          }
-        }, 30000);
-
-        // Handle client disconnect
-        req.on('close', () => {
-          clearInterval(keepAlive);
-          console.log(`[ElevenLabs MCP] Connection closed for session: ${sessionId}`);
-        });
-
-      } catch (error) {
-        console.error(`[ElevenLabs MCP] Connection error for session ${sessionId}:`, error);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to establish ElevenLabs MCP connection' });
-        }
-      }
+      // Use the same SSE handler that works for Claude
+      await handleSSE(req, res);
+      
+      // Restore original console.log
+      console.log = originalLog;
     };
 
-    this.app.get('/elevenlabs', handleElevenLabsMCP);
-    this.app.post('/elevenlabs', handleElevenLabsMCP);
+    this.app.get('/elevenlabs', handleElevenLabsSSE);
+    this.app.post('/elevenlabs', handleElevenLabsSSE);
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
