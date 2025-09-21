@@ -398,79 +398,23 @@ class GHLMCPHttpServer {
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
 
       console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
-      console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
-
+      
       try {
-        // For POST requests, create a logging wrapper but let the original request pass through
-        let loggingPromise = Promise.resolve();
-        
-        if (req.method === 'POST') {
-          console.log(`[${client} MCP] POST request detected - setting up dual logging`);
-          
-          // Create a separate logging stream that doesn't interfere with the original
-          const originalOn = req.on.bind(req);
-          const dataChunks: Buffer[] = [];
-          
-          // Override the 'on' method to capture data for logging without consuming it
-          req.on = function(event: string, listener: (...args: any[]) => void) {
-            if (event === 'data') {
-              // Create a wrapper that logs AND calls the original listener
-              const wrapper = (chunk: Buffer) => {
-                dataChunks.push(chunk);
-                listener(chunk);
-              };
-              return originalOn(event, wrapper);
-            } else if (event === 'end') {
-              // Create a wrapper that logs the complete body
-              const wrapper = (...args: any[]) => {
-                const body = Buffer.concat(dataChunks).toString();
-                if (body) {
-                  console.log(`[${client} MCP] 🎯 LOGGED POST BODY:`, body);
-                  try {
-                    const jsonData = JSON.parse(body);
-                    logMCPMessage('RECV', client, jsonData, sessionId.toString());
-                  } catch (error) {
-                    console.log(`[${client} MCP] Non-JSON POST data:`, body);
-                  }
-                }
-                listener(...args);
-              };
-              return originalOn(event, wrapper);
-            } else {
-              return originalOn(event, listener);
-            }
-          } as any;
-        }
-
-        // Create SSE transport with message logging
+        // IMMEDIATELY create and connect the transport so it can handle the request
+        // The SSEServerTransport needs to set up its own event handlers on the request
         const transport = new SSEServerTransport('/sse', res);
-        console.log(`[${client} MCP] SSE transport created for path: /sse`);
-
-        // Add message interceptors for detailed logging
+        
+        // Add message interceptors for detailed logging BEFORE connecting
         const originalSend = transport.send.bind(transport);
         transport.send = (message: any) => {
-          logMCPMessage('SEND', client, message, sessionId.toString());
+          console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
           return originalSend(message);
         };
 
-        // Listen for transport events
-        transport.onclose = () => {
-          console.log(`[${client} MCP] Transport closed for session: ${sessionId}`);
-        };
-        transport.onerror = (error: any) => {
-          console.error(`[${client} MCP] Transport error for session ${sessionId}:`, error);
-        };
-
-        // Connect MCP server to transport
-        console.log(`[${client} MCP] Connecting MCP server to SSE transport...`);
-        try {
-          await this.server.connect(transport);
-          console.log(`[${client} MCP] MCP server connected successfully to transport`);
-        } catch (connectError) {
-          console.error(`[${client} MCP] Failed to connect MCP server to transport:`, connectError);
-          throw connectError;
-        }
-
+        // Connect MCP server to transport IMMEDIATELY
+        // This allows the transport to handle the POST body
+        await this.server.connect(transport);
+        
         console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
         console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
 
