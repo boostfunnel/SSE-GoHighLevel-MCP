@@ -427,17 +427,35 @@ class GHLMCPHttpServer {
 
           // Re-create the request stream from the captured body for the SSE transport
           const { Readable } = require('stream');
-          const newReq = new Readable();
-          newReq.push(Buffer.concat(chunks));
-          newReq.push(null);
+          const bodyBuffer = Buffer.concat(chunks);
+          const newReq = new Readable({
+            read() {
+              this.push(bodyBuffer);
+              this.push(null);
+            }
+          });
 
-          // Copy original request properties to the new stream
-          Object.assign(newReq, req);
-          req = newReq; // Replace the original request object
+          // Copy essential request properties to the new stream
+          Object.setPrototypeOf(newReq, req);
+          newReq.method = req.method;
+          newReq.url = req.url;
+          newReq.headers = req.headers;
+          newReq.httpVersion = req.httpVersion;
+          newReq.httpVersionMajor = req.httpVersionMajor;
+          newReq.httpVersionMinor = req.httpVersionMinor;
+          newReq.rawHeaders = req.rawHeaders;
+          newReq.connection = req.connection;
+          newReq.socket = req.socket;
+          newReq.query = req.query;
+          newReq.params = req.params;
+          
+          // Replace the original request object
+          req = newReq as any;
         }
 
         // Create SSE transport with message logging
         const transport = new SSEServerTransport('/sse', res);
+        console.log(`[${client} MCP] SSE transport created for path: /sse`);
 
         // Add message interceptors for detailed logging
         const originalSend = transport.send.bind(transport);
@@ -446,8 +464,23 @@ class GHLMCPHttpServer {
           return originalSend(message);
         };
 
+        // Listen for transport events
+        transport.onclose = () => {
+          console.log(`[${client} MCP] Transport closed for session: ${sessionId}`);
+        };
+        transport.onerror = (error: any) => {
+          console.error(`[${client} MCP] Transport error for session ${sessionId}:`, error);
+        };
+
         // Connect MCP server to transport
-        await this.server.connect(transport);
+        console.log(`[${client} MCP] Connecting MCP server to SSE transport...`);
+        try {
+          await this.server.connect(transport);
+          console.log(`[${client} MCP] MCP server connected successfully to transport`);
+        } catch (connectError) {
+          console.error(`[${client} MCP] Failed to connect MCP server to transport:`, connectError);
+          throw connectError;
+        }
 
         console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
         console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
