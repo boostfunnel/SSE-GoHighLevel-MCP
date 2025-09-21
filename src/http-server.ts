@@ -401,25 +401,6 @@ class GHLMCPHttpServer {
       console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
       console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
       
-      // Capture POST body data for debugging
-      if (req.method === 'POST') {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk.toString();
-        });
-        req.on('end', () => {
-          if (body) {
-            console.log(`[${client} MCP] POST Body:`, body);
-            try {
-              const jsonData = JSON.parse(body);
-              logMCPMessage('RECV', client, jsonData, sessionId.toString());
-            } catch (error) {
-              console.log(`[${client} MCP] Non-JSON POST data:`, body);
-            }
-          }
-        });
-      }
-      
       try {
         // Create SSE transport with message logging
         const transport = new SSEServerTransport('/sse', res);
@@ -430,13 +411,6 @@ class GHLMCPHttpServer {
           logMCPMessage('SEND', client, message, sessionId.toString());
           return originalSend(message);
         };
-        
-        // Log when transport receives messages (if this method exists)
-        if (transport.onmessage) {
-          transport.onmessage = (message: any) => {
-            logMCPMessage('RECV', client, message, sessionId.toString());
-          };
-        }
         
         // Connect MCP server to transport
         await this.server.connect(transport);
@@ -461,13 +435,39 @@ class GHLMCPHttpServer {
       }
     };
 
+    // Add middleware to capture POST body for MCP debugging
+    const capturePostBody = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (req.method === 'POST') {
+        const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+        const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+        const sessionId = req.query.sessionId || 'unknown';
+        
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          if (body) {
+            console.log(`[${client} MCP] POST Body:`, body);
+            try {
+              const jsonData = JSON.parse(body);
+              logMCPMessage('RECV', client, jsonData, sessionId.toString());
+            } catch (error) {
+              console.log(`[${client} MCP] Non-JSON POST data:`, body);
+            }
+          }
+        });
+      }
+      next();
+    };
+
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', handleSSEWithLogging);
+    this.app.post('/sse', capturePostBody, handleSSEWithLogging);
 
     // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
     this.app.get('/elevenlabs', handleSSEWithLogging);
-    this.app.post('/elevenlabs', handleSSEWithLogging);
+    this.app.post('/elevenlabs', capturePostBody, handleSSEWithLogging);
 
     // ElevenLabs debug endpoint to understand the protocol
     this.app.all('/elevenlabs-debug', (req, res) => {
