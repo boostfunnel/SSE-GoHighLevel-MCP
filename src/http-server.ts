@@ -435,16 +435,19 @@ class GHLMCPHttpServer {
       }
     };
 
-    // Store active MCP transports for each session
+    // Store active MCP transports - use both session ID and a simple counter for fallback
     const activeTransports = new Map<string, any>();
+    const transportsByIndex = new Map<number, any>();
+    let transportIndex = 0;
     
     // Handle GET for SSE connection establishment
     this.app.get('/sse', async (req, res) => {
       const sessionId = req.query.sessionId || 'unknown';
       const isElevenLabs = req.headers['user-agent']?.includes('python-httpx');
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      const currentIndex = transportIndex++;
       
-      console.log(`[${client} MCP] Establishing SSE connection for session: ${sessionId}`);
+      console.log(`[${client} MCP] Establishing SSE connection #${currentIndex} for session: ${sessionId}`);
       
       // Create SSE transport and connect MCP server
       const transport = new SSEServerTransport('/sse', res);
@@ -460,16 +463,26 @@ class GHLMCPHttpServer {
       // Connect MCP server to transport
       await this.server.connect(transport);
       
-      // Store the transport for POST message handling
+      // Store the transport multiple ways for robust lookup
       activeTransports.set(sessionId.toString(), transport);
+      transportsByIndex.set(currentIndex, transport);
+      // Also store by IP for ElevenLabs (they might use same IP for GET/POST)
+      if (req.ip) {
+        activeTransports.set(`ip:${req.ip}`, transport);
+      }
       
-      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}, index: ${currentIndex}`);
       console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
+      console.log(`[${client} MCP] Active transports: ${activeTransports.size}`);
       
       // Clean up on disconnect
       req.on('close', () => {
         console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
         activeTransports.delete(sessionId.toString());
+        transportsByIndex.delete(currentIndex);
+        if (req.ip) {
+          activeTransports.delete(`ip:${req.ip}`);
+        }
       });
     });
     
@@ -485,8 +498,26 @@ class GHLMCPHttpServer {
       if (req.body) {
         logMCPMessage('RECV', client, req.body, sessionId.toString());
         
-        // Get the transport for this session
-        const transport = activeTransports.get(sessionId.toString());
+        // Try to find the transport - ElevenLabs might not send matching session IDs
+        let transport = activeTransports.get(sessionId.toString());
+        
+        // If not found by session ID, try by IP
+        if (!transport && req.ip) {
+          transport = activeTransports.get(`ip:${req.ip}`);
+          if (transport) {
+            console.log(`[${client} MCP] Found transport by IP: ${req.ip}`);
+          }
+        }
+        
+        // If still not found, use the most recent transport (last resort)
+        if (!transport && transportsByIndex.size > 0) {
+          const lastIndex = Math.max(...Array.from(transportsByIndex.keys()));
+          transport = transportsByIndex.get(lastIndex);
+          if (transport) {
+            console.log(`[${client} MCP] Using most recent transport (index: ${lastIndex})`);
+          }
+        }
+        
         if (transport) {
           // The transport should handle the message internally
           // Since we can't directly send to the server, we'll send a manual response for now
@@ -574,8 +605,9 @@ class GHLMCPHttpServer {
     this.app.get('/elevenlabs', async (req, res) => {
       const sessionId = req.query.sessionId || 'unknown';
       const client = 'ElevenLabs';
+      const currentIndex = transportIndex++;
       
-      console.log(`[${client} MCP] Establishing SSE connection for session: ${sessionId}`);
+      console.log(`[${client} MCP] Establishing SSE connection #${currentIndex} for session: ${sessionId}`);
       
       // Create SSE transport and connect MCP server
       const transport = new SSEServerTransport('/sse', res);
@@ -591,16 +623,25 @@ class GHLMCPHttpServer {
       // Connect MCP server to transport
       await this.server.connect(transport);
       
-      // Store the transport for POST message handling
+      // Store the transport multiple ways for robust lookup
       activeTransports.set(sessionId.toString(), transport);
+      transportsByIndex.set(currentIndex, transport);
+      if (req.ip) {
+        activeTransports.set(`ip:${req.ip}`, transport);
+      }
       
-      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}, index: ${currentIndex}`);
       console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
+      console.log(`[${client} MCP] Active transports: ${activeTransports.size}`);
       
       // Clean up on disconnect
       req.on('close', () => {
         console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
         activeTransports.delete(sessionId.toString());
+        transportsByIndex.delete(currentIndex);
+        if (req.ip) {
+          activeTransports.delete(`ip:${req.ip}`);
+        }
       });
     });
     
@@ -614,8 +655,26 @@ class GHLMCPHttpServer {
       if (req.body) {
         logMCPMessage('RECV', client, req.body, sessionId.toString());
         
-        // Get the transport for this session
-        const transport = activeTransports.get(sessionId.toString());
+        // Try to find the transport - ElevenLabs might not send matching session IDs
+        let transport = activeTransports.get(sessionId.toString());
+        
+        // If not found by session ID, try by IP
+        if (!transport && req.ip) {
+          transport = activeTransports.get(`ip:${req.ip}`);
+          if (transport) {
+            console.log(`[${client} MCP] Found transport by IP: ${req.ip}`);
+          }
+        }
+        
+        // If still not found, use the most recent transport (last resort)
+        if (!transport && transportsByIndex.size > 0) {
+          const lastIndex = Math.max(...Array.from(transportsByIndex.keys()));
+          transport = transportsByIndex.get(lastIndex);
+          if (transport) {
+            console.log(`[${client} MCP] Using most recent transport (index: ${lastIndex})`);
+          }
+        }
+        
         if (transport) {
           if (req.body.method === 'initialize') {
             // Use the client's requested protocol version if we support it
