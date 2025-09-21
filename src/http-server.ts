@@ -435,13 +435,58 @@ class GHLMCPHttpServer {
       }
     };
 
-    // Handle both GET and POST for SSE (MCP protocol requirements)
-    this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', handleSSEWithLogging);
+    // Store active SSE connections
+    const activeConnections = new Map<string, any>();
+    
+    // Handle GET for SSE connection establishment
+    this.app.get('/sse', (req, res) => {
+      const sessionId = req.query.sessionId || 'unknown';
+      handleSSEWithLogging(req, res);
+      // Store the connection for this session
+      activeConnections.set(sessionId.toString(), res);
+    });
+    
+    // Handle POST for MCP messages
+    this.app.post('/sse', express.json(), async (req, res) => {
+      const sessionId = req.query.sessionId || 'unknown';
+      const isElevenLabs = req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      
+      console.log(`[${client} MCP] POST message received for session: ${sessionId}`);
+      console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      
+      if (req.body) {
+        logMCPMessage('RECV', client, req.body, sessionId.toString());
+        
+        // TODO: Process the message through the MCP server
+        // For now, just acknowledge receipt
+        res.status(200).json({ status: 'received' });
+      } else {
+        res.status(400).json({ error: 'No body received' });
+      }
+    });
 
-    // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
-    this.app.get('/elevenlabs', handleSSEWithLogging);
-    this.app.post('/elevenlabs', handleSSEWithLogging);
+    // ElevenLabs MCP endpoint - Same pattern as /sse
+    this.app.get('/elevenlabs', (req, res) => {
+      const sessionId = req.query.sessionId || 'unknown';
+      handleSSEWithLogging(req, res);
+      activeConnections.set(sessionId.toString(), res);
+    });
+    
+    this.app.post('/elevenlabs', express.json(), async (req, res) => {
+      const sessionId = req.query.sessionId || 'unknown';
+      const client = 'ElevenLabs';
+      
+      console.log(`[${client} MCP] POST message received for session: ${sessionId}`);
+      console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      
+      if (req.body) {
+        logMCPMessage('RECV', client, req.body, sessionId.toString());
+        res.status(200).json({ status: 'received' });
+      } else {
+        res.status(400).json({ error: 'No body received' });
+      }
+    });
 
     // Buffer test endpoint - try different approaches
     this.app.post('/test-buffer', express.text({ type: 'application/json' }), (req, res) => {
