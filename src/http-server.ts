@@ -491,11 +491,16 @@ class GHLMCPHttpServer {
           // The transport should handle the message internally
           // Since we can't directly send to the server, we'll send a manual response for now
           if (req.body.method === 'initialize') {
+            // Use the client's requested protocol version if we support it
+            const clientVersion = req.body.params?.protocolVersion || '2024-11-05';
+            const supportedVersions = ['2024-11-05', '2025-03-26'];
+            const protocolVersion = supportedVersions.includes(clientVersion) ? clientVersion : '2024-11-05';
+            
             const response = {
               jsonrpc: '2.0',
               id: req.body.id,
               result: {
-                protocolVersion: '2024-11-05', // Using our server's version
+                protocolVersion: protocolVersion,
                 capabilities: {
                   tools: {}
                 },
@@ -507,7 +512,7 @@ class GHLMCPHttpServer {
             };
             // Send response through SSE
             transport.send(response);
-            console.log(`[${client} MCP] Sent initialize response`);
+            console.log(`[${client} MCP] Sent initialize response with protocol version: ${protocolVersion}`);
           } else if (req.body.method === 'tools/list') {
             const tools = this.getAllToolDefinitions();
             const response = {
@@ -519,6 +524,40 @@ class GHLMCPHttpServer {
             };
             transport.send(response);
             console.log(`[${client} MCP] Sent tools/list response with ${tools.length} tools`);
+          } else if (req.body.method === 'tools/call') {
+            // Handle tool execution
+            const { name, arguments: args } = req.body.params || {};
+            console.log(`[${client} MCP] Tool call requested: ${name}`);
+            
+            try {
+              // Execute the tool using the existing handlers
+              const result = await this.executeToolCall(name, args);
+              const response = {
+                jsonrpc: '2.0',
+                id: req.body.id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: JSON.stringify(result, null, 2)
+                    }
+                  ]
+                }
+              };
+              transport.send(response);
+              console.log(`[${client} MCP] Tool call successful: ${name}`);
+            } catch (error) {
+              const errorResponse = {
+                jsonrpc: '2.0',
+                id: req.body.id,
+                error: {
+                  code: -32603,
+                  message: error instanceof Error ? error.message : 'Tool execution failed'
+                }
+              };
+              transport.send(errorResponse);
+              console.error(`[${client} MCP] Tool call failed: ${name}`, error);
+            }
           }
         } else {
           console.error(`[${client} MCP] No transport found for session: ${sessionId}`);
@@ -579,11 +618,16 @@ class GHLMCPHttpServer {
         const transport = activeTransports.get(sessionId.toString());
         if (transport) {
           if (req.body.method === 'initialize') {
+            // Use the client's requested protocol version if we support it
+            const clientVersion = req.body.params?.protocolVersion || '2024-11-05';
+            const supportedVersions = ['2024-11-05', '2025-03-26'];
+            const protocolVersion = supportedVersions.includes(clientVersion) ? clientVersion : '2024-11-05';
+            
             const response = {
               jsonrpc: '2.0',
               id: req.body.id,
               result: {
-                protocolVersion: '2024-11-05',
+                protocolVersion: protocolVersion,
                 capabilities: {
                   tools: {}
                 },
@@ -594,7 +638,7 @@ class GHLMCPHttpServer {
               }
             };
             transport.send(response);
-            console.log(`[${client} MCP] Sent initialize response`);
+            console.log(`[${client} MCP] Sent initialize response with protocol version: ${protocolVersion}`);
           } else if (req.body.method === 'tools/list') {
             const tools = this.getAllToolDefinitions();
             const response = {
@@ -606,6 +650,40 @@ class GHLMCPHttpServer {
             };
             transport.send(response);
             console.log(`[${client} MCP] Sent tools/list response with ${tools.length} tools`);
+          } else if (req.body.method === 'tools/call') {
+            // Handle tool execution
+            const { name, arguments: args } = req.body.params || {};
+            console.log(`[${client} MCP] Tool call requested: ${name}`);
+            
+            try {
+              // Execute the tool using the existing handlers
+              const result = await this.executeToolCall(name, args);
+              const response = {
+                jsonrpc: '2.0',
+                id: req.body.id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: JSON.stringify(result, null, 2)
+                    }
+                  ]
+                }
+              };
+              transport.send(response);
+              console.log(`[${client} MCP] Tool call successful: ${name}`);
+            } catch (error) {
+              const errorResponse = {
+                jsonrpc: '2.0',
+                id: req.body.id,
+                error: {
+                  code: -32603,
+                  message: error instanceof Error ? error.message : 'Tool execution failed'
+                }
+              };
+              transport.send(errorResponse);
+              console.error(`[${client} MCP] Tool call failed: ${name}`, error);
+            }
           }
         } else {
           console.error(`[${client} MCP] No transport found for session: ${sessionId}`);
@@ -686,6 +764,50 @@ class GHLMCPHttpServer {
         documentation: 'https://github.com/your-repo/ghl-mcp-server'
       });
     });
+  }
+
+  /**
+   * Execute a tool call
+   */
+  private async executeToolCall(name: string, args: any) {
+    // Route to appropriate tool handler based on tool name
+    if (this.isContactTool(name)) {
+      return await this.contactTools.executeTool(name, args || {});
+    } else if (this.isConversationTool(name)) {
+      return await this.conversationTools.executeTool(name, args || {});
+    } else if (this.isBlogTool(name)) {
+      return await this.blogTools.executeTool(name, args || {});
+    } else if (this.isOpportunityTool(name)) {
+      return await this.opportunityTools.executeTool(name, args || {});
+    } else if (this.isCalendarTool(name)) {
+      return await this.calendarTools.executeTool(name, args || {});
+    } else if (this.isEmailTool(name)) {
+      return await this.emailTools.executeTool(name, args || {});
+    } else if (this.isLocationTool(name)) {
+      return await this.locationTools.executeTool(name, args || {});
+    } else if (this.isEmailISVTool(name)) {
+      return await this.emailISVTools.executeTool(name, args || {});
+    } else if (this.isSocialMediaTool(name)) {
+      return await this.socialMediaTools.executeTool(name, args || {});
+    } else if (this.isMediaTool(name)) {
+      return await this.mediaTools.executeTool(name, args || {});
+    } else if (this.isObjectTool(name)) {
+      return await this.objectTools.executeTool(name, args || {});
+    } else if (this.isAssociationTool(name)) {
+      return await this.associationTools.executeAssociationTool(name, args || {});
+    } else if (this.isCustomFieldV2Tool(name)) {
+      return await this.customFieldV2Tools.executeCustomFieldV2Tool(name, args || {});
+    } else if (this.isWorkflowTool(name)) {
+      return await this.workflowTools.executeWorkflowTool(name, args || {});
+    } else if (this.isSurveyTool(name)) {
+      return await this.surveyTools.executeSurveyTool(name, args || {});
+    } else if (this.isStoreTool(name)) {
+      return await this.storeTools.executeStoreTool(name, args || {});
+    } else if (this.isProductsTool(name)) {
+      return await this.productsTools.executeProductsTool(name, args || {});
+    } else {
+      throw new Error(`Unknown tool: ${name}`);
+    }
   }
 
   /**
