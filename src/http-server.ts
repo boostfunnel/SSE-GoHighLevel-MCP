@@ -401,56 +401,45 @@ class GHLMCPHttpServer {
       console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
 
       try {
-        // Intercept POST body for logging before SSE transport consumes it
+        // For POST requests, create a logging wrapper but let the original request pass through
+        let loggingPromise = Promise.resolve();
+        
         if (req.method === 'POST') {
-          const chunks: Buffer[] = [];
-
-          req.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
-          });
-
-          await new Promise<void>((resolve) => {
-            req.on('end', () => {
-              const body = Buffer.concat(chunks).toString();
-              if (body) {
-                console.log(`[${client} MCP] 🎯 INTERCEPTED POST BODY:`, body);
-                try {
-                  const jsonData = JSON.parse(body);
-                  logMCPMessage('RECV', client, jsonData, sessionId.toString());
-                } catch (error) {
-                  console.log(`[${client} MCP] Non-JSON POST data:`, body);
-                }
-              }
-              resolve();
-            });
-          });
-
-          // Re-create the request stream from the captured body for the SSE transport
-          const { Readable } = require('stream');
-          const bodyBuffer = Buffer.concat(chunks);
-          const newReq = new Readable({
-            read() {
-              this.push(bodyBuffer);
-              this.push(null);
-            }
-          });
-
-          // Copy essential request properties to the new stream
-          Object.setPrototypeOf(newReq, req);
-          newReq.method = req.method;
-          newReq.url = req.url;
-          newReq.headers = req.headers;
-          newReq.httpVersion = req.httpVersion;
-          newReq.httpVersionMajor = req.httpVersionMajor;
-          newReq.httpVersionMinor = req.httpVersionMinor;
-          newReq.rawHeaders = req.rawHeaders;
-          newReq.connection = req.connection;
-          newReq.socket = req.socket;
-          newReq.query = req.query;
-          newReq.params = req.params;
+          console.log(`[${client} MCP] POST request detected - setting up dual logging`);
           
-          // Replace the original request object
-          req = newReq as any;
+          // Create a separate logging stream that doesn't interfere with the original
+          const originalOn = req.on.bind(req);
+          const dataChunks: Buffer[] = [];
+          
+          // Override the 'on' method to capture data for logging without consuming it
+          req.on = function(event: string, listener: (...args: any[]) => void) {
+            if (event === 'data') {
+              // Create a wrapper that logs AND calls the original listener
+              const wrapper = (chunk: Buffer) => {
+                dataChunks.push(chunk);
+                listener(chunk);
+              };
+              return originalOn(event, wrapper);
+            } else if (event === 'end') {
+              // Create a wrapper that logs the complete body
+              const wrapper = (...args: any[]) => {
+                const body = Buffer.concat(dataChunks).toString();
+                if (body) {
+                  console.log(`[${client} MCP] 🎯 LOGGED POST BODY:`, body);
+                  try {
+                    const jsonData = JSON.parse(body);
+                    logMCPMessage('RECV', client, jsonData, sessionId.toString());
+                  } catch (error) {
+                    console.log(`[${client} MCP] Non-JSON POST data:`, body);
+                  }
+                }
+                listener(...args);
+              };
+              return originalOn(event, wrapper);
+            } else {
+              return originalOn(event, listener);
+            }
+          } as any;
         }
 
         // Create SSE transport with message logging
