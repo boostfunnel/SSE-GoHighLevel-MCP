@@ -385,217 +385,158 @@ class GHLMCPHttpServer {
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
-// ElevenLabs-compatible MCP endpoint - Proper Request/Response Flow
-    this.app.get('/elevenlabs', (req, res) => {
-      console.log('[ElevenLabs MCP] New SSE connection from ElevenLabs Agent');
+// ElevenLabs MCP endpoint - Copy exact working /sse implementation
+    const handleElevenLabsSSE = async (req: express.Request, res: express.Response) => {
+      const sessionId = req.query.sessionId || req.headers['x-session-id'] || 'elevenlabs';
+      console.log(`[ElevenLabs MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+      console.log('[ElevenLabs MCP] User-Agent:', req.headers['user-agent']);
+      console.log('[ElevenLabs MCP] All Headers:', JSON.stringify(req.headers, null, 2));
       
-      // Set SSE headers for ElevenLabs compatibility
+      try {
+        // Create SSE transport (this will set the headers) - EXACT same as working /sse
+        const transport = new SSEServerTransport('/elevenlabs', res);
+        
+        // Connect MCP server to transport - this handles the full MCP protocol
+        await this.server.connect(transport);
+        
+        console.log(`[ElevenLabs MCP] SSE connection established for session: ${sessionId}`);
+        console.log(`[ElevenLabs MCP] Available tools: ${this.getToolsCount().total}`);
+        
+        // Handle client disconnect
+        req.on('close', () => {
+          console.log(`[ElevenLabs MCP] SSE connection closed for session: ${sessionId}`);
+        });
+        
+        req.on('error', (error) => {
+          console.error(`[ElevenLabs MCP] SSE connection error for session ${sessionId}:`, error);
+        });
+        
+      } catch (error) {
+        console.error(`[ElevenLabs MCP] SSE connection error for session ${sessionId}:`, error);
+        
+        // Only send error response if headers haven't been sent yet
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
+        } else {
+          // If headers were already sent, close the connection
+          res.end();
+        }
+      }
+    };
+
+    // Handle both GET and POST for ElevenLabs MCP (same as working /sse)
+    this.app.get('/elevenlabs', handleElevenLabsSSE);
+    this.app.post('/elevenlabs', handleElevenLabsSSE);
+
+    // ============================================================================
+    // ELEVENLABS SIMPLE MCP ENDPOINT (Alternative)
+    // ============================================================================
+    
+    // Simple manual MCP implementation for ElevenLabs - based on api/index.js working version
+    this.app.get('/elevenlabs-simple', (req, res) => {
+      console.log('[ElevenLabs Simple] New SSE connection');
+      
+      // Set SSE headers exactly like the working api/index.js
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache', 
+        'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization'
+        'Access-Control-Allow-Headers': 'Content-Type, Accept',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
       });
-
-      // Send initial connection acknowledgment (not a JSON-RPC response)
-      res.write(': Connected to GoHighLevel MCP Server\n\n');
-      console.log('[ElevenLabs MCP] SSE connection established, waiting for initialize request');
-
-      // Keep connection alive 
+      
+      // Send initialization notification (like api/index.js)
+      const initNotification = {
+        jsonrpc: "2.0",
+        method: "notification/initialized",
+        params: {}
+      };
+      res.write(`data: ${JSON.stringify(initNotification)}\n\n`);
+      
+      // Send tools available notification
+      setTimeout(() => {
+        const toolsNotification = {
+          jsonrpc: "2.0",
+          method: "notification/tools/list_changed",
+          params: {}
+        };
+        res.write(`data: ${JSON.stringify(toolsNotification)}\n\n`);
+      }, 100);
+      
+      // Keep-alive heartbeat
       const heartbeat = setInterval(() => {
         res.write(': heartbeat\n\n');
-      }, 30000);
-
-      // Handle connection close
+      }, 25000);
+      
+      // Cleanup on connection close
       req.on('close', () => {
-        console.log('[ElevenLabs MCP] Connection closed by client');
+        console.log('[ElevenLabs Simple] SSE connection closed');
         clearInterval(heartbeat);
       });
-
-      // Auto-close after 5 minutes to prevent hanging connections
+      
+      req.on('error', (error) => {
+        console.log('[ElevenLabs Simple] SSE connection error:', error.message);
+        clearInterval(heartbeat);
+      });
+      
+      // Auto-close after 50 seconds
       setTimeout(() => {
-        console.log('[ElevenLabs MCP] Auto-closing connection after 5 minutes');
+        console.log('[ElevenLabs Simple] SSE connection auto-closing');
         clearInterval(heartbeat);
         res.end();
-      }, 300000);
+      }, 50000);
     });
 
-    // POST handler for ElevenLabs MCP JSON-RPC requests  
-    this.app.post('/elevenlabs', (req, res) => {
-      console.log('[ElevenLabs MCP] POST request received');
+    // Handle POST requests for simple MCP
+    this.app.post('/elevenlabs-simple', (req, res) => {
+      console.log('[ElevenLabs Simple] Processing JSON-RPC POST request');
       
       // Set SSE headers
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Accept',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
       });
-
+      
       let body = '';
       req.on('data', chunk => {
         body += chunk.toString();
       });
-
+      
       req.on('end', async () => {
         try {
+          console.log('[ElevenLabs Simple] Received POST body:', body);
           const message = JSON.parse(body);
-          console.log('[ElevenLabs MCP] Received JSON-RPC message:', message.method, 'ID:', message.id);
           
-          let response;
-
-          if (message.method === 'initialize') {
-            response = {
-              jsonrpc: '2.0',
-              id: message.id,
-              result: {
-                protocolVersion: '2024-11-05',
-                capabilities: {
-                  tools: {}
-                },
-                serverInfo: {
-                  name: 'ghl-mcp-server',
-                  version: '1.0.0'
-                }
-              }
-            };
-            console.log('[ElevenLabs MCP] Sent initialize response');
-            
-          } else if (message.method === 'tools/list') {
-            // Return core tools for ElevenLabs
-            const tools = [
-              {
-                name: 'search_contacts',
-                description: 'Search for contacts in GoHighLevel CRM',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Search query for contact name, email, or phone' },
-                    limit: { type: 'number', description: 'Maximum number of results (default: 25)' }
-                  },
-                  required: []
-                }
-              },
-              {
-                name: 'create_contact',
-                description: 'Create a new contact in GoHighLevel CRM',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    firstName: { type: 'string', description: 'Contact first name' },
-                    lastName: { type: 'string', description: 'Contact last name' },
-                    email: { type: 'string', description: 'Contact email address' },
-                    phone: { type: 'string', description: 'Contact phone number' }
-                  },
-                  required: ['email']
-                }
-              },
-              {
-                name: 'send_sms',
-                description: 'Send SMS message to a GoHighLevel contact',
-                inputSchema: {
-                  type: 'object',
-                  properties: {
-                    contactId: { type: 'string', description: 'GoHighLevel contact ID' },
-                    message: { type: 'string', description: 'SMS message content' }
-                  },
-                  required: ['contactId', 'message']
-                }
-              }
-            ];
-            
-            response = {
-              jsonrpc: '2.0',
-              id: message.id,
-              result: {
-                tools: tools
-              }
-            };
-            console.log('[ElevenLabs MCP] Sent tools list with', tools.length, 'tools');
-            
-          } else if (message.method === 'tools/call') {
-            // Handle tool execution
-            const { name, arguments: args } = message.params;
-            console.log('[ElevenLabs MCP] Executing tool:', name, 'with args:', JSON.stringify(args));
-            
-            try {
-              let result;
-              
-              if (name === 'search_contacts') {
-                result = await this.contactTools.executeTool('search_contacts', args || {});
-              } else if (name === 'create_contact') {
-                result = await this.contactTools.executeTool('create_contact', args || {});
-              } else if (name === 'send_sms') {
-                result = await this.conversationTools.executeTool('send_sms', args || {});
-              } else {
-                throw new Error(`Unknown tool: ${name}`);
-              }
-
-              response = {
-                jsonrpc: '2.0',
-                id: message.id,
-                result: {
-                  content: [
-                    {
-                      type: 'text',
-                      text: JSON.stringify(result, null, 2)
-                    }
-                  ],
-                  isError: false
-                }
-              };
-              console.log('[ElevenLabs MCP] Tool execution successful:', name);
-              
-            } catch (error) {
-              console.error('[ElevenLabs MCP] Tool execution error:', error);
-              response = {
-                jsonrpc: '2.0',
-                id: message.id,
-                error: {
-                  code: -32603,
-                  message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
-                }
-              };
-            }
-            
-          } else if (message.method === 'ping') {
-            response = {
-              jsonrpc: '2.0',
-              id: message.id,
-              result: {}
-            };
-            console.log('[ElevenLabs MCP] Responded to ping');
-            
-          } else {
-            response = {
-              jsonrpc: '2.0',
-              id: message.id,
-              error: {
-                code: -32601,
-                message: `Method not found: ${message.method}`
-              }
-            };
-            console.log('[ElevenLabs MCP] Unknown method:', message.method);
-          }
-
-          // Send response via SSE
+          // Create response using same format as api/index.js
+          const response = await this.processJsonRpcForElevenLabs(message);
+          
+          console.log('[ElevenLabs Simple] Sending JSON-RPC response:', JSON.stringify(response));
+          
+          // Send as SSE for MCP protocol compliance
           res.write(`data: ${JSON.stringify(response)}\n\n`);
           
-          // Don't close connection after response - keep it open for more requests
+          // Close connection after response
+          setTimeout(() => {
+            res.end();
+          }, 100);
           
         } catch (error) {
-          console.error('[ElevenLabs MCP] Error processing POST request:', error);
+          console.log('[ElevenLabs Simple] JSON parse error:', error.message);
           const errorResponse = {
-            jsonrpc: '2.0',
+            jsonrpc: "2.0",
             id: null,
             error: {
               code: -32700,
-              message: 'Parse error'
+              message: "Parse error"
             }
           };
           res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
+          res.end();
         }
       });
     });
@@ -653,6 +594,7 @@ class GHLMCPHttpServer {
           tools: '/tools',
           sse: '/sse',
           elevenlabs: '/elevenlabs',
+          'elevenlabs-simple': '/elevenlabs-simple',
           'elevenlabs-debug': '/elevenlabs-debug',
           webhook: '/webhook/tools'
         },
@@ -811,7 +753,7 @@ class GHLMCPHttpServer {
           timestamp: new Date().toISOString(),
           source: 'GoHighLevel CRM'
         });
-      } catch (error) {
+        } catch (error) {
         console.error('[ElevenLabs Webhook] Error in get_free_slots:', error);
         res.status(500).json({
           success: false,
@@ -958,6 +900,177 @@ class GHLMCPHttpServer {
         }
       });
     });
+  }
+
+  /**
+   * Process JSON-RPC messages for ElevenLabs (based on working api/index.js)
+   */
+  private async processJsonRpcForElevenLabs(message: any): Promise<any> {
+    try {
+      console.log('[ElevenLabs Simple] Processing JSON-RPC message:', message.method, 'ID:', message.id);
+      
+      // Validate JSON-RPC format
+      if (message.jsonrpc !== "2.0") {
+        return {
+          jsonrpc: "2.0",
+          id: message.id,
+          error: {
+            code: -32600,
+            message: "Invalid Request: jsonrpc must be '2.0'"
+          }
+        };
+      }
+      
+      switch (message.method) {
+        case "initialize":
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              protocolVersion: "2024-11-05",
+              capabilities: {
+                tools: {}
+              },
+              serverInfo: {
+                name: "ghl-mcp-server",
+                version: "1.0.0"
+              }
+            }
+          };
+          
+        case "tools/list":
+          // Return ONLY essential tools for ElevenLabs compatibility
+          const tools = [
+            {
+              name: "search_contacts",
+              description: "Search for contacts in GoHighLevel CRM system",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  query: {
+                    type: "string",
+                    description: "Search query for GoHighLevel contacts"
+                  }
+                },
+                required: ["query"]
+              }
+            },
+            {
+              name: "create_contact", 
+              description: "Create a new contact in GoHighLevel CRM",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  email: {
+                    type: "string",
+                    description: "Contact email address"
+                  },
+                  firstName: {
+                    type: "string", 
+                    description: "Contact first name"
+                  }
+                },
+                required: ["email"]
+              }
+            }
+          ];
+          
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              tools: tools
+            }
+          };
+          
+        case "tools/call":
+          const { name, arguments: args } = message.params;
+          console.log('[ElevenLabs Simple] Executing tool:', name, 'with args:', args);
+          
+          let content;
+          
+          if (name === "search_contacts") {
+            try {
+              const result = await this.contactTools.executeTool('search_contacts', args || {});
+              content = [
+                {
+                  type: "text",
+                  text: `GoHighLevel Search Results:\n\n${JSON.stringify(result, null, 2)}`
+                }
+              ];
+            } catch (error) {
+              content = [
+                {
+                  type: "text",
+                  text: `Search failed: ${error instanceof Error ? error.message : String(error)}`
+                }
+              ];
+            }
+          } else if (name === "create_contact") {
+            try {
+              const result = await this.contactTools.executeTool('create_contact', args || {});
+              content = [
+                {
+                  type: "text",
+                  text: `Contact Created:\n\n${JSON.stringify(result, null, 2)}`
+                }
+              ];
+            } catch (error) {
+              content = [
+                {
+                  type: "text",
+                  text: `Contact creation failed: ${error instanceof Error ? error.message : String(error)}`
+                }
+              ];
+            }
+          } else {
+            return {
+              jsonrpc: "2.0",
+              id: message.id,
+              error: {
+                code: -32601,
+                message: `Method not found: ${name}`
+              }
+            };
+          }
+          
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              content: content
+            }
+          };
+          
+        case "ping":
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {}
+          };
+          
+        default:
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: -32601,
+              message: `Method not found: ${message.method}`
+            }
+          };
+      }
+    } catch (error) {
+      console.log('[ElevenLabs Simple] Error processing message:', error.message);
+      return {
+        jsonrpc: "2.0",
+        id: message.id || null,
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: error instanceof Error ? error.message : String(error)
+        }
+      };
+    }
   }
 
   /**
