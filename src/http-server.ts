@@ -1,6 +1,6 @@
 /**
  * GoHighLevel MCP HTTP Server
- * HTTP version for ChatGPT web integration
+ * HTTP version for ChatGPT and ElevenLabs web integration
  */
 
 import express from 'express';
@@ -115,12 +115,12 @@ class GHLMCPHttpServer {
    * Setup Express middleware and configuration
    */
   private setupExpress(): void {
-    // Enable CORS for ChatGPT integration
+    // Enable CORS for ChatGPT and ElevenLabs integration
     this.app.use(cors({
-      origin: ['https://chatgpt.com', 'https://chat.openai.com', 'http://localhost:*'],
+      origin: '*',
       methods: ['GET', 'POST', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-      credentials: true
+      credentials: false
     }));
 
     // Parse JSON requests
@@ -350,27 +350,29 @@ class GHLMCPHttpServer {
       }
     });
 
-    // SSE endpoint for ChatGPT MCP connection
+    // SSE endpoint for MCP connection (works for both ChatGPT and ElevenLabs)
     const handleSSE = async (req: express.Request, res: express.Response) => {
       const sessionId = req.query.sessionId || 'unknown';
-      console.log(`[GHL MCP HTTP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+      const client = req.headers['user-agent']?.includes('python-httpx') ? 'ElevenLabs' : 'Claude/ChatGPT';
+      console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
       
       try {
         // Create SSE transport (this will set the headers)
-        const transport = new SSEServerTransport('/sse', res);
+        const transport = new SSEServerTransport(req.url || '/sse', res);
         
         // Connect MCP server to transport
         await this.server.connect(transport);
         
-        console.log(`[GHL MCP HTTP] SSE connection established for session: ${sessionId}`);
+        console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+        console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
         
         // Handle client disconnect
         req.on('close', () => {
-          console.log(`[GHL MCP HTTP] SSE connection closed for session: ${sessionId}`);
+          console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
         });
         
       } catch (error) {
-        console.error(`[GHL MCP HTTP] SSE connection error for session ${sessionId}:`, error);
+        console.error(`[${client} MCP] SSE connection error for session ${sessionId}:`, error);
         
         // Only send error response if headers haven't been sent yet
         if (!res.headersSent) {
@@ -385,202 +387,10 @@ class GHLMCPHttpServer {
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
-// ElevenLabs MCP endpoint - Copy exact working /sse implementation
-    const handleElevenLabsSSE = async (req: express.Request, res: express.Response) => {
-      const sessionId = req.query.sessionId || req.headers['x-session-id'] || 'elevenlabs';
-      console.log(`[ElevenLabs MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
-      console.log('[ElevenLabs MCP] User-Agent:', req.headers['user-agent']);
-      console.log('[ElevenLabs MCP] All Headers:', JSON.stringify(req.headers, null, 2));
-      
-      try {
-        // Create SSE transport (this will set the headers) - EXACT same as working /sse
-        const transport = new SSEServerTransport('/elevenlabs', res);
-        
-        // Connect MCP server to transport - this handles the full MCP protocol
-        await this.server.connect(transport);
-        
-        console.log(`[ElevenLabs MCP] SSE connection established for session: ${sessionId}`);
-        console.log(`[ElevenLabs MCP] Available tools: ${this.getToolsCount().total}`);
-        
-        // Handle client disconnect
-        req.on('close', () => {
-          console.log(`[ElevenLabs MCP] SSE connection closed for session: ${sessionId}`);
-        });
-        
-        req.on('error', (error) => {
-          console.error(`[ElevenLabs MCP] SSE connection error for session ${sessionId}:`, error);
-        });
-        
-      } catch (error) {
-        console.error(`[ElevenLabs MCP] SSE connection error for session ${sessionId}:`, error);
-        
-        // Only send error response if headers haven't been sent yet
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to establish SSE connection' });
-        } else {
-          // If headers were already sent, close the connection
-          res.end();
-        }
-      }
-    };
 
-    // Handle both GET and POST for ElevenLabs MCP (same as working /sse)
-    this.app.get('/elevenlabs', handleElevenLabsSSE);
-    this.app.post('/elevenlabs', handleElevenLabsSSE);
-
-    // ============================================================================
-    // ELEVENLABS SIMPLE MCP ENDPOINT (Alternative)
-    // ============================================================================
-    
-    // Simple manual MCP implementation for ElevenLabs - based on api/index.js working version
-    this.app.get('/elevenlabs-simple', (req, res) => {
-      console.log('[ElevenLabs Simple] New SSE connection');
-      
-      // Set SSE headers exactly like the working api/index.js
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-      });
-      
-      // Send initialization notification (like api/index.js)
-      const initNotification = {
-        jsonrpc: "2.0",
-        method: "notification/initialized",
-        params: {}
-      };
-      res.write(`data: ${JSON.stringify(initNotification)}\n\n`);
-      
-      // Send tools available notification
-      setTimeout(() => {
-        const toolsNotification = {
-          jsonrpc: "2.0",
-          method: "notification/tools/list_changed",
-          params: {}
-        };
-        res.write(`data: ${JSON.stringify(toolsNotification)}\n\n`);
-      }, 100);
-      
-      // Keep-alive heartbeat
-      const heartbeat = setInterval(() => {
-        res.write(': heartbeat\n\n');
-      }, 25000);
-      
-      // Cleanup on connection close
-      req.on('close', () => {
-        console.log('[ElevenLabs Simple] SSE connection closed');
-        clearInterval(heartbeat);
-      });
-      
-      req.on('error', (error) => {
-        console.log('[ElevenLabs Simple] SSE connection error:', error.message);
-        clearInterval(heartbeat);
-      });
-      
-      // Auto-close after 50 seconds
-      setTimeout(() => {
-        console.log('[ElevenLabs Simple] SSE connection auto-closing');
-        clearInterval(heartbeat);
-        res.end();
-      }, 50000);
-    });
-
-    // Handle POST requests for simple MCP
-    this.app.post('/elevenlabs-simple', (req, res) => {
-      console.log('[ElevenLabs Simple] Processing JSON-RPC POST request');
-      
-      // Set SSE headers
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Accept',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-      });
-      
-      let body = '';
-      req.on('data', chunk => {
-        body += chunk.toString();
-      });
-      
-      req.on('end', async () => {
-        try {
-          console.log('[ElevenLabs Simple] Received POST body:', body);
-          const message = JSON.parse(body);
-          
-          // Create response using same format as api/index.js
-          const response = await this.processJsonRpcForElevenLabs(message);
-          
-          console.log('[ElevenLabs Simple] Sending JSON-RPC response:', JSON.stringify(response));
-          
-          // Send as SSE for MCP protocol compliance
-          res.write(`data: ${JSON.stringify(response)}\n\n`);
-          
-          // Close connection after response
-          setTimeout(() => {
-            res.end();
-          }, 100);
-          
-        } catch (error) {
-          console.log('[ElevenLabs Simple] JSON parse error:', error instanceof Error ? error.message : String(error));
-          const errorResponse = {
-            jsonrpc: "2.0",
-            id: null,
-            error: {
-              code: -32700,
-              message: "Parse error"
-            }
-          };
-          res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
-          res.end();
-        }
-      });
-    });
-
-    // ============================================================================
-    // ELEVENLABS DEBUG ENDPOINT
-    // ============================================================================
-    
-    // Debug endpoint to test what ElevenLabs is sending
-    this.app.all('/elevenlabs-debug', (req, res) => {
-      console.log('[ElevenLabs DEBUG] Method:', req.method);
-      console.log('[ElevenLabs DEBUG] Headers:', JSON.stringify(req.headers, null, 2));
-      console.log('[ElevenLabs DEBUG] Query:', JSON.stringify(req.query, null, 2));
-      
-      if (req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => {
-          body += chunk.toString();
-        });
-        req.on('end', () => {
-          console.log('[ElevenLabs DEBUG] Body:', body);
-          res.json({
-            debug: true,
-            method: req.method,
-            headers: req.headers,
-            query: req.query,
-            body: body
-          });
-        });
-      } else {
-        res.json({
-          debug: true,
-          method: req.method,
-          headers: req.headers,
-          query: req.query,
-          message: 'Use this to debug what ElevenLabs is sending'
-        });
-      }
-    });
-
-    // ============================================================================
-    // ELEVENLABS WEBHOOK ENDPOINTS (Alternative to MCP)
-    // ============================================================================
-    this.setupElevenLabsWebhooks();
+    // ElevenLabs MCP endpoint - Uses exact same working implementation
+    this.app.get('/elevenlabs', handleSSE);
+    this.app.post('/elevenlabs', handleSSE);
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
@@ -593,484 +403,12 @@ class GHLMCPHttpServer {
           capabilities: '/capabilities',
           tools: '/tools',
           sse: '/sse',
-          elevenlabs: '/elevenlabs',
-          'elevenlabs-simple': '/elevenlabs-simple',
-          'elevenlabs-debug': '/elevenlabs-debug',
-          webhook: '/webhook/tools'
+          elevenlabs: '/elevenlabs'
         },
         tools: this.getToolsCount(),
         documentation: 'https://github.com/your-repo/ghl-mcp-server'
       });
     });
-  }
-
-  /**
-   * Setup ElevenLabs webhook endpoints for server tools integration
-   */
-  private setupElevenLabsWebhooks(): void {
-    // ============================================================================
-    // CONTACT MANAGEMENT WEBHOOKS
-    // ============================================================================
-
-    // Search Contacts - Compatible with ElevenLabs Server Tools
-    this.app.get('/webhook/contacts/search', async (req, res) => {
-      try {
-        const { query, email, phone, limit } = req.query;
-        
-        const result = await this.contactTools.executeTool('search_contacts', {
-          query: query as string,
-          email: email as string,
-          phone: phone as string,
-          limit: limit ? parseInt(limit as string) : 25
-        });
-
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in search_contacts:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // Create Contact
-    this.app.post('/webhook/contacts', async (req, res) => {
-      try {
-        const result = await this.contactTools.executeTool('create_contact', req.body);
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in create_contact:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // Get Contact by ID
-    this.app.get('/webhook/contacts/:contactId', async (req, res) => {
-      try {
-        const { contactId } = req.params;
-        
-        const result = await this.contactTools.executeTool('get_contact', { contactId });
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in get_contact:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // ============================================================================
-    // MESSAGING WEBHOOKS
-    // ============================================================================
-
-    // Send SMS
-    this.app.post('/webhook/messages/sms', async (req, res) => {
-      try {
-        const result = await this.conversationTools.executeTool('send_sms', req.body);
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in send_sms:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // Send Email
-    this.app.post('/webhook/messages/email', async (req, res) => {
-      try {
-        const result = await this.conversationTools.executeTool('send_email', req.body);
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in send_email:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // ============================================================================
-    // CALENDAR WEBHOOKS
-    // ============================================================================
-
-    // Get Free Slots for a calendar
-    this.app.get('/webhook/calendars/:calendarId/free-slots', async (req, res) => {
-      try {
-        const { calendarId } = req.params;
-        const { startDate, endDate, timezone } = req.query;
-        
-        const result = await this.calendarTools.executeTool('get_free_slots', {
-          calendarId,
-          startDate: startDate as string,
-          endDate: endDate as string,
-          timezone: timezone as string
-        });
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-        } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in get_free_slots:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // Create Appointment
-    this.app.post('/webhook/appointments', async (req, res) => {
-      try {
-        const result = await this.calendarTools.executeTool('create_appointment', req.body);
-        
-        res.json({
-          success: true,
-          data: result,
-          timestamp: new Date().toISOString(),
-          source: 'GoHighLevel CRM'
-        });
-      } catch (error) {
-        console.error('[ElevenLabs Webhook] Error in create_appointment:', error);
-        res.status(500).json({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString()
-        });
-      }
-    });
-
-    // ============================================================================
-    // WEBHOOK TOOLS DISCOVERY
-    // ============================================================================
-
-    // Tools Discovery for ElevenLabs Configuration Helper
-    this.app.get('/webhook/tools', (req, res) => {
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      
-      res.json({
-        server: 'GoHighLevel ElevenLabs Webhook Server',
-        version: '1.0.0',
-        description: 'Individual webhook endpoints for GoHighLevel tools compatible with ElevenLabs Server Tools',
-        baseUrl: baseUrl,
-        tools: {
-          // Contact Management Tools
-          contact_tools: {
-            search_contacts: {
-              method: 'GET',
-              url: `${baseUrl}/webhook/contacts/search`,
-              description: 'Search for contacts in GoHighLevel CRM',
-              parameters: {
-                query: 'string - Search query for contact name, email, or phone',
-                email: 'string - Specific email to search for',
-                phone: 'string - Specific phone number to search for',
-                limit: 'number - Maximum number of results (default: 25)'
-              }
-            },
-            create_contact: {
-              method: 'POST',
-              url: `${baseUrl}/webhook/contacts`,
-              description: 'Create a new contact in GoHighLevel',
-              body: {
-                firstName: 'string - First name',
-                lastName: 'string - Last name',
-                email: 'string - Email address',
-                phone: 'string - Phone number',
-                tags: 'array - Tags to apply to contact'
-              }
-            },
-            get_contact: {
-              method: 'GET',
-              url: `${baseUrl}/webhook/contacts/{contactId}`,
-              description: 'Get contact details by ID',
-              pathParams: {
-                contactId: 'string - GoHighLevel contact ID'
-              }
-            }
-          },
-          
-          // Messaging Tools
-          messaging_tools: {
-            send_sms: {
-              method: 'POST',
-              url: `${baseUrl}/webhook/messages/sms`,
-              description: 'Send SMS message to a contact',
-              body: {
-                contactId: 'string - Contact ID to send SMS to',
-                message: 'string - SMS message content',
-                fromNumber: 'string - Optional from number'
-              }
-            },
-            send_email: {
-              method: 'POST',
-              url: `${baseUrl}/webhook/messages/email`,
-              description: 'Send email message to a contact',
-              body: {
-                contactId: 'string - Contact ID to send email to',
-                subject: 'string - Email subject',
-                message: 'string - Email content (plain text)',
-                html: 'string - Email content (HTML)'
-              }
-            }
-          },
-          
-          // Calendar Tools
-          calendar_tools: {
-            get_free_slots: {
-              method: 'GET',
-              url: `${baseUrl}/webhook/calendars/{calendarId}/free-slots`,
-              description: 'Get available appointment slots for a calendar',
-              pathParams: {
-                calendarId: 'string - Calendar ID'
-              },
-              parameters: {
-                startDate: 'string - Start date (YYYY-MM-DD)',
-                endDate: 'string - End date (YYYY-MM-DD)',
-                timezone: 'string - Timezone (optional)'
-              }
-            },
-            create_appointment: {
-              method: 'POST',
-              url: `${baseUrl}/webhook/appointments`,
-              description: 'Create a new appointment',
-              body: {
-                calendarId: 'string - Calendar ID',
-                contactId: 'string - Contact ID',
-                startTime: 'string - Start time (ISO format)',
-                endTime: 'string - End time (ISO format)',
-                title: 'string - Appointment title'
-              }
-            }
-          }
-        },
-        authentication: {
-          type: 'Bearer Token',
-          header: 'Authorization',
-          value: 'Bearer {your-ghl-api-key}',
-          note: 'Use your GoHighLevel Private Integrations API key'
-        },
-        instructions: {
-          setup: 'Configure each tool individually in ElevenLabs Agent Dashboard using the URLs and parameters above',
-          authentication: 'Add Bearer token authentication with your GHL API key',
-          testing: 'Test each endpoint individually before adding to your agent'
-        }
-      });
-    });
-  }
-
-  /**
-   * Process JSON-RPC messages for ElevenLabs (based on working api/index.js)
-   */
-  private async processJsonRpcForElevenLabs(message: any): Promise<any> {
-    try {
-      console.log('[ElevenLabs Simple] Processing JSON-RPC message:', message.method, 'ID:', message.id);
-      
-      // Validate JSON-RPC format
-      if (message.jsonrpc !== "2.0") {
-        return {
-          jsonrpc: "2.0",
-          id: message.id,
-          error: {
-            code: -32600,
-            message: "Invalid Request: jsonrpc must be '2.0'"
-          }
-        };
-      }
-      
-      switch (message.method) {
-        case "initialize":
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              protocolVersion: "2024-11-05",
-              capabilities: {
-                tools: {}
-              },
-              serverInfo: {
-                name: "ghl-mcp-server",
-                version: "1.0.0"
-              }
-            }
-          };
-          
-        case "tools/list":
-          // Return ONLY essential tools for ElevenLabs compatibility
-          const tools = [
-            {
-              name: "search_contacts",
-              description: "Search for contacts in GoHighLevel CRM system",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  query: {
-                    type: "string",
-                    description: "Search query for GoHighLevel contacts"
-                  }
-                },
-                required: ["query"]
-              }
-            },
-            {
-              name: "create_contact", 
-              description: "Create a new contact in GoHighLevel CRM",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  email: {
-                    type: "string",
-                    description: "Contact email address"
-                  },
-                  firstName: {
-                    type: "string", 
-                    description: "Contact first name"
-                  }
-                },
-                required: ["email"]
-              }
-            }
-          ];
-          
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              tools: tools
-            }
-          };
-          
-        case "tools/call":
-          const { name, arguments: args } = message.params;
-          console.log('[ElevenLabs Simple] Executing tool:', name, 'with args:', args);
-          
-          let content;
-          
-          if (name === "search_contacts") {
-            try {
-              const result = await this.contactTools.executeTool('search_contacts', args || {});
-              content = [
-                {
-                  type: "text",
-                  text: `GoHighLevel Search Results:\n\n${JSON.stringify(result, null, 2)}`
-                }
-              ];
-            } catch (error) {
-              content = [
-                {
-                  type: "text",
-                  text: `Search failed: ${error instanceof Error ? error.message : String(error)}`
-                }
-              ];
-            }
-          } else if (name === "create_contact") {
-            try {
-              const result = await this.contactTools.executeTool('create_contact', args || {});
-              content = [
-                {
-                  type: "text",
-                  text: `Contact Created:\n\n${JSON.stringify(result, null, 2)}`
-                }
-              ];
-            } catch (error) {
-              content = [
-                {
-                  type: "text",
-                  text: `Contact creation failed: ${error instanceof Error ? error.message : String(error)}`
-                }
-              ];
-            }
-          } else {
-            return {
-              jsonrpc: "2.0",
-              id: message.id,
-              error: {
-                code: -32601,
-                message: `Method not found: ${name}`
-              }
-            };
-          }
-          
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {
-              content: content
-            }
-          };
-          
-        case "ping":
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            result: {}
-          };
-          
-        default:
-          return {
-            jsonrpc: "2.0",
-            id: message.id,
-            error: {
-              code: -32601,
-              message: `Method not found: ${message.method}`
-            }
-          };
-      }
-    } catch (error) {
-      console.log('[ElevenLabs Simple] Error processing message:', error instanceof Error ? error.message : String(error));
-      return {
-        jsonrpc: "2.0",
-        id: message.id || null,
-        error: {
-          code: -32603,
-          message: "Internal error",
-          data: error instanceof Error ? error.message : String(error)
-        }
-      };
-    }
   }
 
   /**
@@ -1364,8 +702,9 @@ class GHLMCPHttpServer {
         console.log('✅ GoHighLevel MCP HTTP Server started successfully!');
         console.log(`🌐 Server running on: http://0.0.0.0:${this.port}`);
         console.log(`🔗 SSE Endpoint: http://0.0.0.0:${this.port}/sse`);
+        console.log(`🔗 ElevenLabs Endpoint: http://0.0.0.0:${this.port}/elevenlabs`);
         console.log(`📋 Tools Available: ${this.getToolsCount().total}`);
-        console.log('🎯 Ready for ChatGPT integration!');
+        console.log('🎯 Ready for ChatGPT and ElevenLabs integration!');
         console.log('=========================================');
       });
       
