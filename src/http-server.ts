@@ -11,7 +11,7 @@ import {
   CallToolRequestSchema,
   ErrorCode,
   ListToolsRequestSchema,
-  McpError
+  McpError 
 } from '@modelcontextprotocol/sdk/types.js';
 import * as dotenv from 'dotenv';
 
@@ -479,6 +479,21 @@ class GHLMCPHttpServer {
       
       // Call the regular handler
       handleSSEWithLogging(req, res);
+    });
+
+    // Buffer test endpoint
+    this.app.post('/test-buffer', express.raw({ type: 'application/json' }), (req, res) => {
+      console.log(`[Buffer Test] Body type:`, typeof req.body);
+      console.log(`[Buffer Test] Is Buffer:`, Buffer.isBuffer(req.body));
+      console.log(`[Buffer Test] Raw body:`, req.body);
+      console.log(`[Buffer Test] String conversion:`, Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body));
+      
+      res.json({ 
+        received: true, 
+        type: typeof req.body,
+        isBuffer: Buffer.isBuffer(req.body),
+        content: Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body)
+      });
     });
 
     // ElevenLabs debug endpoint to understand the protocol
