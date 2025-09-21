@@ -444,7 +444,7 @@ class GHLMCPHttpServer {
       const sessionId = req.query.sessionId || 'unknown';
       
       if (req.body) {
-        const bodyString = req.body.toString();
+        const bodyString = Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body);
         console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
         try {
           const jsonData = JSON.parse(bodyString);
@@ -467,7 +467,7 @@ class GHLMCPHttpServer {
       const sessionId = req.query.sessionId || 'unknown';
       
       if (req.body) {
-        const bodyString = req.body.toString();
+        const bodyString = Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body);
         console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
         try {
           const jsonData = JSON.parse(bodyString);
