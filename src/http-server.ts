@@ -401,6 +401,25 @@ class GHLMCPHttpServer {
       console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
       console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
       
+      // Capture POST body data for debugging
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          if (body) {
+            console.log(`[${client} MCP] POST Body:`, body);
+            try {
+              const jsonData = JSON.parse(body);
+              logMCPMessage('RECV', client, jsonData, sessionId.toString());
+            } catch (error) {
+              console.log(`[${client} MCP] Non-JSON POST data:`, body);
+            }
+          }
+        });
+      }
+      
       try {
         // Create SSE transport with message logging
         const transport = new SSEServerTransport('/sse', res);
@@ -412,10 +431,12 @@ class GHLMCPHttpServer {
           return originalSend(message);
         };
         
-        // Log when transport receives messages
-        transport.onmessage = (message: any) => {
-          logMCPMessage('RECV', client, message, sessionId.toString());
-        };
+        // Log when transport receives messages (if this method exists)
+        if (transport.onmessage) {
+          transport.onmessage = (message: any) => {
+            logMCPMessage('RECV', client, message, sessionId.toString());
+          };
+        }
         
         // Connect MCP server to transport
         await this.server.connect(transport);
