@@ -445,12 +445,24 @@ class GHLMCPHttpServer {
       
       if (req.body) {
         console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
-        try {
-          const jsonData = JSON.parse(req.body);
-          logMCPMessage('RECV', client, jsonData, sessionId.toString());
-        } catch (error) {
-          console.log(`[${client} MCP] Non-JSON POST data:`, req.body);
+        
+        // Handle both string and already-parsed object
+        let jsonData;
+        if (typeof req.body === 'string') {
+          try {
+            jsonData = JSON.parse(req.body);
+          } catch (error) {
+            console.log(`[${client} MCP] Invalid JSON string:`, req.body);
+            return;
+          }
+        } else if (typeof req.body === 'object') {
+          jsonData = req.body;
+        } else {
+          console.log(`[${client} MCP] Unexpected body type:`, typeof req.body);
+          return;
         }
+        
+        logMCPMessage('RECV', client, jsonData, sessionId.toString());
       }
       
       // Call the regular handler
@@ -467,12 +479,24 @@ class GHLMCPHttpServer {
       
       if (req.body) {
         console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
-        try {
-          const jsonData = JSON.parse(req.body);
-          logMCPMessage('RECV', client, jsonData, sessionId.toString());
-        } catch (error) {
-          console.log(`[${client} MCP] Non-JSON POST data:`, req.body);
+        
+        // Handle both string and already-parsed object
+        let jsonData;
+        if (typeof req.body === 'string') {
+          try {
+            jsonData = JSON.parse(req.body);
+          } catch (error) {
+            console.log(`[${client} MCP] Invalid JSON string:`, req.body);
+            return;
+          }
+        } else if (typeof req.body === 'object') {
+          jsonData = req.body;
+        } else {
+          console.log(`[${client} MCP] Unexpected body type:`, typeof req.body);
+          return;
         }
+        
+        logMCPMessage('RECV', client, jsonData, sessionId.toString());
       }
       
       // Call the regular handler
