@@ -11,7 +11,7 @@ import {
   CallToolRequestSchema,
   ErrorCode,
   ListToolsRequestSchema,
-  McpError 
+  McpError
 } from '@modelcontextprotocol/sdk/types.js';
 import * as dotenv from 'dotenv';
 
