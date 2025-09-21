@@ -353,12 +353,13 @@ class GHLMCPHttpServer {
     // SSE endpoint for MCP connection (works for both ChatGPT and ElevenLabs)
     const handleSSE = async (req: express.Request, res: express.Response) => {
       const sessionId = req.query.sessionId || 'unknown';
-      const client = req.headers['user-agent']?.includes('python-httpx') ? 'ElevenLabs' : 'Claude/ChatGPT';
-      console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
       
       try {
-        // Create SSE transport (this will set the headers)
-        const transport = new SSEServerTransport(req.url || '/sse', res);
+        // Create SSE transport - always use '/sse' as the path for consistency
+        const transport = new SSEServerTransport('/sse', res);
         
         // Connect MCP server to transport
         await this.server.connect(transport);
@@ -373,6 +374,7 @@ class GHLMCPHttpServer {
         
       } catch (error) {
         console.error(`[${client} MCP] SSE connection error for session ${sessionId}:`, error);
+        console.error(`[${client} MCP] Error details:`, error instanceof Error ? error.stack : error);
         
         // Only send error response if headers haven't been sent yet
         if (!res.headersSent) {
@@ -388,28 +390,48 @@ class GHLMCPHttpServer {
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
 
-    // ElevenLabs MCP endpoint - Use the same working SSE handler
-    // Since ElevenLabs uses the same MCP protocol as Claude Desktop, we can reuse the handler
-    const handleElevenLabsSSE = async (req: express.Request, res: express.Response) => {
-      // Add ElevenLabs-specific logging
-      const originalLog = console.log;
-      console.log = (...args) => {
-        if (args[0]?.includes('MCP')) {
-          originalLog(`[ElevenLabs ${args[0].substring(1)}`, ...args.slice(1));
-        } else {
-          originalLog(...args);
-        }
-      };
-      
-      // Use the same SSE handler that works for Claude
-      await handleSSE(req, res);
-      
-      // Restore original console.log
-      console.log = originalLog;
-    };
+    // ElevenLabs MCP endpoint - Direct alias to the working SSE handler
+    this.app.get('/elevenlabs', handleSSE);
+    this.app.post('/elevenlabs', handleSSE);
 
-    this.app.get('/elevenlabs', handleElevenLabsSSE);
-    this.app.post('/elevenlabs', handleElevenLabsSSE);
+    // ElevenLabs debug endpoint to understand the protocol
+    this.app.all('/elevenlabs-debug', (req, res) => {
+      console.log(`[ElevenLabs Debug] ${req.method} request`);
+      console.log(`[ElevenLabs Debug] Headers:`, JSON.stringify(req.headers, null, 2));
+      console.log(`[ElevenLabs Debug] Query:`, req.query);
+      console.log(`[ElevenLabs Debug] URL:`, req.url);
+      
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          console.log(`[ElevenLabs Debug] Body:`, body);
+          res.json({ status: 'debug', received: body });
+        });
+      } else {
+        // For GET requests, set up SSE
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*'
+        });
+        
+        // Send a test message
+        res.write(`data: {"type": "debug", "message": "ElevenLabs debug endpoint connected"}\n\n`);
+        
+        // Log any incoming data
+        req.on('data', (chunk) => {
+          console.log(`[ElevenLabs Debug] Received data on GET:`, chunk.toString());
+        });
+        
+        req.on('close', () => {
+          console.log(`[ElevenLabs Debug] Connection closed`);
+        });
+      }
+    });
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
