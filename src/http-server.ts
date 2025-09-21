@@ -437,20 +437,19 @@ class GHLMCPHttpServer {
 
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', express.raw({ type: 'application/json' }), (req: any, res: any) => {
-      // Log the raw body
+    this.app.post('/sse', express.text({ type: 'application/json' }), (req: any, res: any) => {
+      // Log the text body
       const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
       const sessionId = req.query.sessionId || 'unknown';
       
       if (req.body) {
-        const bodyString = Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body);
-        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
+        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
         try {
-          const jsonData = JSON.parse(bodyString);
+          const jsonData = JSON.parse(req.body);
           logMCPMessage('RECV', client, jsonData, sessionId.toString());
         } catch (error) {
-          console.log(`[${client} MCP] Non-JSON POST data:`, bodyString);
+          console.log(`[${client} MCP] Non-JSON POST data:`, req.body);
         }
       }
       
@@ -460,20 +459,19 @@ class GHLMCPHttpServer {
 
     // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
     this.app.get('/elevenlabs', handleSSEWithLogging);
-    this.app.post('/elevenlabs', express.raw({ type: 'application/json' }), (req: any, res: any) => {
-      // Log the raw body
+    this.app.post('/elevenlabs', express.text({ type: 'application/json' }), (req: any, res: any) => {
+      // Log the text body
       const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
       const sessionId = req.query.sessionId || 'unknown';
       
       if (req.body) {
-        const bodyString = Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body);
-        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
+        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
         try {
-          const jsonData = JSON.parse(bodyString);
+          const jsonData = JSON.parse(req.body);
           logMCPMessage('RECV', client, jsonData, sessionId.toString());
         } catch (error) {
-          console.log(`[${client} MCP] Non-JSON POST data:`, bodyString);
+          console.log(`[${client} MCP] Non-JSON POST data:`, req.body);
         }
       }
       
@@ -481,18 +479,16 @@ class GHLMCPHttpServer {
       handleSSEWithLogging(req, res);
     });
 
-    // Buffer test endpoint
-    this.app.post('/test-buffer', express.raw({ type: 'application/json' }), (req, res) => {
+    // Buffer test endpoint - try different approaches
+    this.app.post('/test-buffer', express.text({ type: 'application/json' }), (req, res) => {
       console.log(`[Buffer Test] Body type:`, typeof req.body);
-      console.log(`[Buffer Test] Is Buffer:`, Buffer.isBuffer(req.body));
       console.log(`[Buffer Test] Raw body:`, req.body);
-      console.log(`[Buffer Test] String conversion:`, Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body));
+      console.log(`[Buffer Test] String body:`, String(req.body));
       
       res.json({ 
         received: true, 
         type: typeof req.body,
-        isBuffer: Buffer.isBuffer(req.body),
-        content: Buffer.isBuffer(req.body) ? req.body.toString() : String(req.body)
+        content: String(req.body)
       });
     });
 
