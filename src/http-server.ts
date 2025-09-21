@@ -526,7 +526,7 @@ class GHLMCPHttpServer {
           }, 100);
           
         } catch (error) {
-          console.log('[ElevenLabs Simple] JSON parse error:', error.message);
+          console.log('[ElevenLabs Simple] JSON parse error:', error instanceof Error ? error.message : String(error));
           const errorResponse = {
             jsonrpc: "2.0",
             id: null,
@@ -1060,7 +1060,7 @@ class GHLMCPHttpServer {
           };
       }
     } catch (error) {
-      console.log('[ElevenLabs Simple] Error processing message:', error.message);
+      console.log('[ElevenLabs Simple] Error processing message:', error instanceof Error ? error.message : String(error));
       return {
         jsonrpc: "2.0",
         id: message.id || null,
