@@ -34,7 +34,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.18.1",
     "@types/cors": "^2.8.18",
     "@types/express": "^5.0.2",
     "axios": "^1.9.0",

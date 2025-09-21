@@ -123,8 +123,7 @@ class GHLMCPHttpServer {
       credentials: false
     }));
 
-    // Parse JSON requests
-    this.app.use(express.json());
+    // JSON parsing handled manually for MCP routes to avoid body consumption
 
     // Request logging
     this.app.use((req, res, next) => {
