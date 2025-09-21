@@ -437,71 +437,21 @@ class GHLMCPHttpServer {
 
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', express.text({ type: 'application/json' }), (req: any, res: any) => {
-      // Log the text body
+    this.app.post('/sse', (req: any, res: any) => {
+      // Capture body without middleware that might interfere with SSE transport
       const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
       const sessionId = req.query.sessionId || 'unknown';
       
-      if (req.body) {
-        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
-        
-        // Handle both string and already-parsed object
-        let jsonData;
-        if (typeof req.body === 'string') {
-          try {
-            jsonData = JSON.parse(req.body);
-          } catch (error) {
-            console.log(`[${client} MCP] Invalid JSON string:`, req.body);
-            return;
-          }
-        } else if (typeof req.body === 'object') {
-          jsonData = req.body;
-        } else {
-          console.log(`[${client} MCP] Unexpected body type:`, typeof req.body);
-          return;
-        }
-        
-        logMCPMessage('RECV', client, jsonData, sessionId.toString());
-      }
+      console.log(`[${client} MCP] POST request received, handling with SSE transport...`);
       
-      // Call the regular handler
+      // Call the regular handler directly without body middleware
       handleSSEWithLogging(req, res);
     });
 
     // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
     this.app.get('/elevenlabs', handleSSEWithLogging);
-    this.app.post('/elevenlabs', express.text({ type: 'application/json' }), (req: any, res: any) => {
-      // Log the text body
-      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
-      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
-      const sessionId = req.query.sessionId || 'unknown';
-      
-      if (req.body) {
-        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, req.body);
-        
-        // Handle both string and already-parsed object
-        let jsonData;
-        if (typeof req.body === 'string') {
-          try {
-            jsonData = JSON.parse(req.body);
-          } catch (error) {
-            console.log(`[${client} MCP] Invalid JSON string:`, req.body);
-            return;
-          }
-        } else if (typeof req.body === 'object') {
-          jsonData = req.body;
-        } else {
-          console.log(`[${client} MCP] Unexpected body type:`, typeof req.body);
-          return;
-        }
-        
-        logMCPMessage('RECV', client, jsonData, sessionId.toString());
-      }
-      
-      // Call the regular handler
-      handleSSEWithLogging(req, res);
-    });
+    this.app.post('/elevenlabs', handleSSEWithLogging);
 
     // Buffer test endpoint - try different approaches
     this.app.post('/test-buffer', express.text({ type: 'application/json' }), (req, res) => {
