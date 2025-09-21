@@ -435,39 +435,51 @@ class GHLMCPHttpServer {
       }
     };
 
-    // Add middleware to capture POST body for MCP debugging
-    const capturePostBody = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-      if (req.method === 'POST') {
-        const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
-        const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
-        const sessionId = req.query.sessionId || 'unknown';
-        
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk.toString();
-        });
-        req.on('end', () => {
-          if (body) {
-            console.log(`[${client} MCP] POST Body:`, body);
-            try {
-              const jsonData = JSON.parse(body);
-              logMCPMessage('RECV', client, jsonData, sessionId.toString());
-            } catch (error) {
-              console.log(`[${client} MCP] Non-JSON POST data:`, body);
-            }
-          }
-        });
-      }
-      next();
-    };
-
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', capturePostBody, handleSSEWithLogging);
+    this.app.post('/sse', express.raw({ type: 'application/json' }), (req: any, res: any) => {
+      // Log the raw body
+      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      const sessionId = req.query.sessionId || 'unknown';
+      
+      if (req.body) {
+        const bodyString = req.body.toString();
+        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
+        try {
+          const jsonData = JSON.parse(bodyString);
+          logMCPMessage('RECV', client, jsonData, sessionId.toString());
+        } catch (error) {
+          console.log(`[${client} MCP] Non-JSON POST data:`, bodyString);
+        }
+      }
+      
+      // Call the regular handler
+      handleSSEWithLogging(req, res);
+    });
 
     // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
     this.app.get('/elevenlabs', handleSSEWithLogging);
-    this.app.post('/elevenlabs', capturePostBody, handleSSEWithLogging);
+    this.app.post('/elevenlabs', express.raw({ type: 'application/json' }), (req: any, res: any) => {
+      // Log the raw body
+      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      const sessionId = req.query.sessionId || 'unknown';
+      
+      if (req.body) {
+        const bodyString = req.body.toString();
+        console.log(`[${client} MCP] 🎯 RAW POST BODY:`, bodyString);
+        try {
+          const jsonData = JSON.parse(bodyString);
+          logMCPMessage('RECV', client, jsonData, sessionId.toString());
+        } catch (error) {
+          console.log(`[${client} MCP] Non-JSON POST data:`, bodyString);
+        }
+      }
+      
+      // Call the regular handler
+      handleSSEWithLogging(req, res);
+    });
 
     // ElevenLabs debug endpoint to understand the protocol
     this.app.all('/elevenlabs-debug', (req, res) => {
