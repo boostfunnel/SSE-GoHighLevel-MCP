@@ -1,6 +1,6 @@
 /**
  * GoHighLevel MCP HTTP Server
- * HTTP version for ChatGPT web integration
+ * HTTP version for ChatGPT and ElevenLabs web integration
  */
 
 import express from 'express';
@@ -115,12 +115,12 @@ class GHLMCPHttpServer {
    * Setup Express middleware and configuration
    */
   private setupExpress(): void {
-    // Enable CORS for ChatGPT integration
+    // Enable CORS for ChatGPT and ElevenLabs integration
     this.app.use(cors({
-      origin: ['https://chatgpt.com', 'https://chat.openai.com', 'http://localhost:*'],
+      origin: '*',
       methods: ['GET', 'POST', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-      credentials: true
+      credentials: false
     }));
 
     // Parse JSON requests
@@ -350,27 +350,31 @@ class GHLMCPHttpServer {
       }
     });
 
-    // SSE endpoint for ChatGPT MCP connection
+    // SSE endpoint for MCP connection (works for both ChatGPT and ElevenLabs)
     const handleSSE = async (req: express.Request, res: express.Response) => {
       const sessionId = req.query.sessionId || 'unknown';
-      console.log(`[GHL MCP HTTP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
       
       try {
-        // Create SSE transport (this will set the headers)
+        // Create SSE transport - always use '/sse' as the path for consistency
         const transport = new SSEServerTransport('/sse', res);
         
         // Connect MCP server to transport
         await this.server.connect(transport);
         
-        console.log(`[GHL MCP HTTP] SSE connection established for session: ${sessionId}`);
+        console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+        console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
         
         // Handle client disconnect
         req.on('close', () => {
-          console.log(`[GHL MCP HTTP] SSE connection closed for session: ${sessionId}`);
+          console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
         });
         
       } catch (error) {
-        console.error(`[GHL MCP HTTP] SSE connection error for session ${sessionId}:`, error);
+        console.error(`[${client} MCP] SSE connection error for session ${sessionId}:`, error);
+        console.error(`[${client} MCP] Error details:`, error instanceof Error ? error.stack : error);
         
         // Only send error response if headers haven't been sent yet
         if (!res.headersSent) {
@@ -382,9 +386,106 @@ class GHLMCPHttpServer {
       }
     };
 
+    // Enhanced debug logging for MCP messages
+    const logMCPMessage = (direction: string, client: string, message: any, sessionId: string) => {
+      console.log(`[${client} MCP ${direction}] Session: ${sessionId}`);
+      console.log(`[${client} MCP ${direction}] Message:`, JSON.stringify(message, null, 2));
+    };
+
+    // Enhanced SSE handler with detailed MCP logging
+    const handleSSEWithLogging = async (req: express.Request, res: express.Response) => {
+      const sessionId = req.query.sessionId || 'unknown';
+      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      
+      console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
+      console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
+      
+      try {
+        // Create SSE transport with message logging
+        const transport = new SSEServerTransport('/sse', res);
+        
+        // Add message interceptors for detailed logging
+        const originalSend = transport.send.bind(transport);
+        transport.send = (message: any) => {
+          logMCPMessage('SEND', client, message, sessionId.toString());
+          return originalSend(message);
+        };
+        
+        // Log when transport receives messages
+        transport.onmessage = (message: any) => {
+          logMCPMessage('RECV', client, message, sessionId.toString());
+        };
+        
+        // Connect MCP server to transport
+        await this.server.connect(transport);
+        
+        console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+        console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
+        
+        // Handle client disconnect
+        req.on('close', () => {
+          console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
+        });
+        
+      } catch (error) {
+        console.error(`[${client} MCP] SSE connection error for session ${sessionId}:`, error);
+        console.error(`[${client} MCP] Error details:`, error instanceof Error ? error.stack : error);
+        
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
+        } else {
+          res.end();
+        }
+      }
+    };
+
     // Handle both GET and POST for SSE (MCP protocol requirements)
-    this.app.get('/sse', handleSSE);
-    this.app.post('/sse', handleSSE);
+    this.app.get('/sse', handleSSEWithLogging);
+    this.app.post('/sse', handleSSEWithLogging);
+
+    // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
+    this.app.get('/elevenlabs', handleSSEWithLogging);
+    this.app.post('/elevenlabs', handleSSEWithLogging);
+
+    // ElevenLabs debug endpoint to understand the protocol
+    this.app.all('/elevenlabs-debug', (req, res) => {
+      console.log(`[ElevenLabs Debug] ${req.method} request`);
+      console.log(`[ElevenLabs Debug] Headers:`, JSON.stringify(req.headers, null, 2));
+      console.log(`[ElevenLabs Debug] Query:`, req.query);
+      console.log(`[ElevenLabs Debug] URL:`, req.url);
+      
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          console.log(`[ElevenLabs Debug] Body:`, body);
+          res.json({ status: 'debug', received: body });
+        });
+      } else {
+        // For GET requests, set up SSE
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*'
+        });
+        
+        // Send a test message
+        res.write(`data: {"type": "debug", "message": "ElevenLabs debug endpoint connected"}\n\n`);
+        
+        // Log any incoming data
+        req.on('data', (chunk) => {
+          console.log(`[ElevenLabs Debug] Received data on GET:`, chunk.toString());
+        });
+        
+        req.on('close', () => {
+          console.log(`[ElevenLabs Debug] Connection closed`);
+        });
+      }
+    });
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
@@ -396,12 +497,139 @@ class GHLMCPHttpServer {
           health: '/health',
           capabilities: '/capabilities',
           tools: '/tools',
-          sse: '/sse'
+          sse: '/sse',
+          elevenlabs: '/elevenlabs'
         },
         tools: this.getToolsCount(),
         documentation: 'https://github.com/your-repo/ghl-mcp-server'
       });
     });
+  }
+
+  /**
+   * Get all tool definitions for ElevenLabs
+   */
+  private getAllToolDefinitions() {
+    const contactTools = this.contactTools.getToolDefinitions();
+    const conversationTools = this.conversationTools.getToolDefinitions();
+    const blogTools = this.blogTools.getToolDefinitions();
+    const opportunityTools = this.opportunityTools.getToolDefinitions();
+    const calendarTools = this.calendarTools.getToolDefinitions();
+    const emailTools = this.emailTools.getToolDefinitions();
+    const locationTools = this.locationTools.getToolDefinitions();
+    const emailISVTools = this.emailISVTools.getToolDefinitions();
+    const socialMediaTools = this.socialMediaTools.getTools();
+    const mediaTools = this.mediaTools.getToolDefinitions();
+    const objectTools = this.objectTools.getToolDefinitions();
+    const associationTools = this.associationTools.getTools();
+    const customFieldV2Tools = this.customFieldV2Tools.getTools();
+    const workflowTools = this.workflowTools.getTools();
+    const surveyTools = this.surveyTools.getTools();
+    const storeTools = this.storeTools.getTools();
+    const productsTools = this.productsTools.getTools();
+    
+    return [
+      ...contactTools,
+      ...conversationTools,
+      ...blogTools,
+      ...opportunityTools,
+      ...calendarTools,
+      ...emailTools,
+      ...locationTools,
+      ...emailISVTools,
+      ...socialMediaTools,
+      ...mediaTools,
+      ...objectTools,
+      ...associationTools,
+      ...customFieldV2Tools,
+      ...workflowTools,
+      ...surveyTools,
+      ...storeTools,
+      ...productsTools
+    ];
+  }
+
+  /**
+   * Handle tool call for ElevenLabs
+   */
+  private async handleElevenLabsToolCall(message: any, res: express.Response) {
+    try {
+      const { name, arguments: args } = message.params;
+      console.log(`[ElevenLabs MCP] Executing tool: ${name}`);
+
+      let result: any;
+
+      // Route to appropriate tool handler (same logic as main server)
+      if (this.isContactTool(name)) {
+        result = await this.contactTools.executeTool(name, args || {});
+      } else if (this.isConversationTool(name)) {
+        result = await this.conversationTools.executeTool(name, args || {});
+      } else if (this.isBlogTool(name)) {
+        result = await this.blogTools.executeTool(name, args || {});
+      } else if (this.isOpportunityTool(name)) {
+        result = await this.opportunityTools.executeTool(name, args || {});
+      } else if (this.isCalendarTool(name)) {
+        result = await this.calendarTools.executeTool(name, args || {});
+      } else if (this.isEmailTool(name)) {
+        result = await this.emailTools.executeTool(name, args || {});
+      } else if (this.isLocationTool(name)) {
+        result = await this.locationTools.executeTool(name, args || {});
+      } else if (this.isEmailISVTool(name)) {
+        result = await this.emailISVTools.executeTool(name, args || {});
+      } else if (this.isSocialMediaTool(name)) {
+        result = await this.socialMediaTools.executeTool(name, args || {});
+      } else if (this.isMediaTool(name)) {
+        result = await this.mediaTools.executeTool(name, args || {});
+      } else if (this.isObjectTool(name)) {
+        result = await this.objectTools.executeTool(name, args || {});
+      } else if (this.isAssociationTool(name)) {
+        result = await this.associationTools.executeAssociationTool(name, args || {});
+      } else if (this.isCustomFieldV2Tool(name)) {
+        result = await this.customFieldV2Tools.executeCustomFieldV2Tool(name, args || {});
+      } else if (this.isWorkflowTool(name)) {
+        result = await this.workflowTools.executeWorkflowTool(name, args || {});
+      } else if (this.isSurveyTool(name)) {
+        result = await this.surveyTools.executeSurveyTool(name, args || {});
+      } else if (this.isStoreTool(name)) {
+        result = await this.storeTools.executeStoreTool(name, args || {});
+      } else if (this.isProductsTool(name)) {
+        result = await this.productsTools.executeProductsTool(name, args || {});
+      } else {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      // Send success response
+      const response = {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }
+          ]
+        }
+      };
+
+      res.write(`data: ${JSON.stringify(response)}\n\n`);
+      console.log(`[ElevenLabs MCP] Tool ${name} executed successfully`);
+
+    } catch (error) {
+      console.error(`[ElevenLabs MCP] Error executing tool:`, error);
+      
+      // Send error response
+      const errorResponse = {
+        jsonrpc: '2.0',
+        id: message.id,
+        error: {
+          code: -32603,
+          message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+
+      res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
+    }
   }
 
   /**
@@ -695,8 +923,9 @@ class GHLMCPHttpServer {
         console.log('✅ GoHighLevel MCP HTTP Server started successfully!');
         console.log(`🌐 Server running on: http://0.0.0.0:${this.port}`);
         console.log(`🔗 SSE Endpoint: http://0.0.0.0:${this.port}/sse`);
+        console.log(`🔗 ElevenLabs Endpoint: http://0.0.0.0:${this.port}/elevenlabs`);
         console.log(`📋 Tools Available: ${this.getToolsCount().total}`);
-        console.log('🎯 Ready for ChatGPT integration!');
+        console.log('🎯 Ready for ChatGPT and ElevenLabs integration!');
         console.log('=========================================');
       });
       
