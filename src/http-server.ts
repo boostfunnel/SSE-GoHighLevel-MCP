@@ -385,156 +385,25 @@ class GHLMCPHttpServer {
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
-// ElevenLabs-compatible MCP endpoint - Custom Implementation
+// ElevenLabs-compatible MCP endpoint - Proper Request/Response Flow
     this.app.get('/elevenlabs', (req, res) => {
       console.log('[ElevenLabs MCP] New SSE connection from ElevenLabs Agent');
       
       // Set SSE headers for ElevenLabs compatibility
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache', 
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization'
       });
 
-      // Send MCP initialization immediately
-      const initResponse = {
-        jsonrpc: '2.0',
-        id: 1,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: {
-            tools: {
-              listChanged: true
-            }
-          },
-          serverInfo: {
-            name: 'ghl-mcp-server',
-            version: '1.0.0'
-          }
-        }
-      };
-      
-      res.write(`data: ${JSON.stringify(initResponse)}\n\n`);
-      console.log('[ElevenLabs MCP] Sent initialization response');
+      // Send initial connection acknowledgment (not a JSON-RPC response)
+      res.write(': Connected to GoHighLevel MCP Server\n\n');
+      console.log('[ElevenLabs MCP] SSE connection established, waiting for initialize request');
 
-      // Prepare simplified tools list for ElevenLabs
-      const toolsList = [
-        {
-          name: 'search_contacts',
-          description: 'Search for contacts in GoHighLevel CRM by name, email, or phone',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: { type: 'string', description: 'Search query for contact name, email, or phone' },
-              email: { type: 'string', description: 'Specific email address to search for' },
-              phone: { type: 'string', description: 'Specific phone number to search for' },
-              limit: { type: 'number', description: 'Maximum number of results to return (default: 25)' }
-            },
-            required: []
-          }
-        },
-        {
-          name: 'create_contact',
-          description: 'Create a new contact in GoHighLevel CRM',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              firstName: { type: 'string', description: 'Contact first name' },
-              lastName: { type: 'string', description: 'Contact last name' },
-              email: { type: 'string', description: 'Contact email address' },
-              phone: { type: 'string', description: 'Contact phone number' },
-              tags: { type: 'array', items: { type: 'string' }, description: 'Tags to apply to the contact' }
-            },
-            required: ['email']
-          }
-        },
-        {
-          name: 'send_sms',
-          description: 'Send SMS message to a GoHighLevel contact',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              contactId: { type: 'string', description: 'GoHighLevel contact ID' },
-              message: { type: 'string', description: 'SMS message content to send' },
-              fromNumber: { type: 'string', description: 'Optional from phone number' }
-            },
-            required: ['contactId', 'message']
-          }
-        },
-        {
-          name: 'send_email',
-          description: 'Send email message to a GoHighLevel contact',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              contactId: { type: 'string', description: 'GoHighLevel contact ID' },
-              subject: { type: 'string', description: 'Email subject line' },
-              message: { type: 'string', description: 'Email message content (plain text)' },
-              html: { type: 'string', description: 'Email message content (HTML format)' }
-            },
-            required: ['contactId', 'subject']
-          }
-        },
-        {
-          name: 'get_calendars',
-          description: 'Get all available calendars in GoHighLevel',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              groupId: { type: 'string', description: 'Optional calendar group ID to filter by' }
-            },
-            required: []
-          }
-        },
-        {
-          name: 'get_free_slots',
-          description: 'Get available appointment slots for a specific calendar',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              calendarId: { type: 'string', description: 'GoHighLevel calendar ID' },
-              startDate: { type: 'string', description: 'Start date for availability check (YYYY-MM-DD)' },
-              endDate: { type: 'string', description: 'End date for availability check (YYYY-MM-DD)' },
-              timezone: { type: 'string', description: 'Timezone for the availability check' }
-            },
-            required: ['calendarId', 'startDate', 'endDate']
-          }
-        },
-        {
-          name: 'create_appointment',
-          description: 'Create a new appointment in GoHighLevel calendar',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              calendarId: { type: 'string', description: 'GoHighLevel calendar ID' },
-              contactId: { type: 'string', description: 'GoHighLevel contact ID' },
-              startTime: { type: 'string', description: 'Appointment start time (ISO format)' },
-              endTime: { type: 'string', description: 'Appointment end time (ISO format)' },
-              title: { type: 'string', description: 'Appointment title/description' }
-            },
-            required: ['calendarId', 'contactId', 'startTime']
-          }
-        }
-      ];
-
-      // Send tools list response after small delay
-      setTimeout(() => {
-        const toolsResponse = {
-          jsonrpc: '2.0',
-          id: 2,
-          result: {
-            tools: toolsList
-          }
-        };
-        
-        res.write(`data: ${JSON.stringify(toolsResponse)}\n\n`);
-        console.log('[ElevenLabs MCP] Sent tools list with', toolsList.length, 'tools');
-      }, 500);
-
-      // Keep connection alive
+      // Keep connection alive 
       const heartbeat = setInterval(() => {
         res.write(': heartbeat\n\n');
       }, 30000);
@@ -573,7 +442,7 @@ class GHLMCPHttpServer {
       req.on('end', async () => {
         try {
           const message = JSON.parse(body);
-          console.log('[ElevenLabs MCP] Received JSON-RPC message:', message.method, message.id);
+          console.log('[ElevenLabs MCP] Received JSON-RPC message:', message.method, 'ID:', message.id);
           
           let response;
 
@@ -584,9 +453,7 @@ class GHLMCPHttpServer {
               result: {
                 protocolVersion: '2024-11-05',
                 capabilities: {
-                  tools: {
-                    listChanged: true
-                  }
+                  tools: {}
                 },
                 serverInfo: {
                   name: 'ghl-mcp-server',
@@ -594,47 +461,74 @@ class GHLMCPHttpServer {
                 }
               }
             };
+            console.log('[ElevenLabs MCP] Sent initialize response');
+            
           } else if (message.method === 'tools/list') {
-            // Return simplified tool list for ElevenLabs
+            // Return core tools for ElevenLabs
+            const tools = [
+              {
+                name: 'search_contacts',
+                description: 'Search for contacts in GoHighLevel CRM',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    query: { type: 'string', description: 'Search query for contact name, email, or phone' },
+                    limit: { type: 'number', description: 'Maximum number of results (default: 25)' }
+                  },
+                  required: []
+                }
+              },
+              {
+                name: 'create_contact',
+                description: 'Create a new contact in GoHighLevel CRM',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    firstName: { type: 'string', description: 'Contact first name' },
+                    lastName: { type: 'string', description: 'Contact last name' },
+                    email: { type: 'string', description: 'Contact email address' },
+                    phone: { type: 'string', description: 'Contact phone number' }
+                  },
+                  required: ['email']
+                }
+              },
+              {
+                name: 'send_sms',
+                description: 'Send SMS message to a GoHighLevel contact',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    contactId: { type: 'string', description: 'GoHighLevel contact ID' },
+                    message: { type: 'string', description: 'SMS message content' }
+                  },
+                  required: ['contactId', 'message']
+                }
+              }
+            ];
+            
             response = {
               jsonrpc: '2.0',
               id: message.id,
               result: {
-                tools: [
-                  {
-                    name: 'search_contacts',
-                    description: 'Search for contacts in GoHighLevel CRM',
-                    inputSchema: {
-                      type: 'object',
-                      properties: {
-                        query: { type: 'string', description: 'Search query' }
-                      },
-                      required: []
-                    }
-                  },
-                  {
-                    name: 'get_calendars',
-                    description: 'Get all calendars from GoHighLevel',
-                    inputSchema: {
-                      type: 'object',
-                      properties: {},
-                      required: []
-                    }
-                  }
-                ]
+                tools: tools
               }
             };
+            console.log('[ElevenLabs MCP] Sent tools list with', tools.length, 'tools');
+            
           } else if (message.method === 'tools/call') {
             // Handle tool execution
             const { name, arguments: args } = message.params;
-            console.log('[ElevenLabs MCP] Executing tool:', name, 'with args:', args);
+            console.log('[ElevenLabs MCP] Executing tool:', name, 'with args:', JSON.stringify(args));
             
-            let result;
             try {
+              let result;
+              
               if (name === 'search_contacts') {
                 result = await this.contactTools.executeTool('search_contacts', args || {});
-              } else if (name === 'get_calendars') {
-                result = await this.calendarTools.executeTool('get_calendars', args || {});
+              } else if (name === 'create_contact') {
+                result = await this.contactTools.executeTool('create_contact', args || {});
+              } else if (name === 'send_sms') {
+                result = await this.conversationTools.executeTool('send_sms', args || {});
               } else {
                 throw new Error(`Unknown tool: ${name}`);
               }
@@ -652,16 +546,28 @@ class GHLMCPHttpServer {
                   isError: false
                 }
               };
+              console.log('[ElevenLabs MCP] Tool execution successful:', name);
+              
             } catch (error) {
+              console.error('[ElevenLabs MCP] Tool execution error:', error);
               response = {
                 jsonrpc: '2.0',
                 id: message.id,
                 error: {
                   code: -32603,
-                  message: `Tool execution failed: ${error}`
+                  message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
                 }
               };
             }
+            
+          } else if (message.method === 'ping') {
+            response = {
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {}
+            };
+            console.log('[ElevenLabs MCP] Responded to ping');
+            
           } else {
             response = {
               jsonrpc: '2.0',
@@ -671,16 +577,13 @@ class GHLMCPHttpServer {
                 message: `Method not found: ${message.method}`
               }
             };
+            console.log('[ElevenLabs MCP] Unknown method:', message.method);
           }
 
-          // Send response
+          // Send response via SSE
           res.write(`data: ${JSON.stringify(response)}\n\n`);
-          console.log('[ElevenLabs MCP] Sent response for:', message.method);
           
-          // Close connection after response
-          setTimeout(() => {
-            res.end();
-          }, 100);
+          // Don't close connection after response - keep it open for more requests
           
         } catch (error) {
           console.error('[ElevenLabs MCP] Error processing POST request:', error);
@@ -693,9 +596,44 @@ class GHLMCPHttpServer {
             }
           };
           res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
-          res.end();
         }
       });
+    });
+
+    // ============================================================================
+    // ELEVENLABS DEBUG ENDPOINT
+    // ============================================================================
+    
+    // Debug endpoint to test what ElevenLabs is sending
+    this.app.all('/elevenlabs-debug', (req, res) => {
+      console.log('[ElevenLabs DEBUG] Method:', req.method);
+      console.log('[ElevenLabs DEBUG] Headers:', JSON.stringify(req.headers, null, 2));
+      console.log('[ElevenLabs DEBUG] Query:', JSON.stringify(req.query, null, 2));
+      
+      if (req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        req.on('end', () => {
+          console.log('[ElevenLabs DEBUG] Body:', body);
+          res.json({
+            debug: true,
+            method: req.method,
+            headers: req.headers,
+            query: req.query,
+            body: body
+          });
+        });
+      } else {
+        res.json({
+          debug: true,
+          method: req.method,
+          headers: req.headers,
+          query: req.query,
+          message: 'Use this to debug what ElevenLabs is sending'
+        });
+      }
     });
 
     // ============================================================================
@@ -715,6 +653,7 @@ class GHLMCPHttpServer {
           tools: '/tools',
           sse: '/sse',
           elevenlabs: '/elevenlabs',
+          'elevenlabs-debug': '/elevenlabs-debug',
           webhook: '/webhook/tools'
         },
         tools: this.getToolsCount(),
