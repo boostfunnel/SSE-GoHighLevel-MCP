@@ -397,36 +397,71 @@ class GHLMCPHttpServer {
       const sessionId = req.query.sessionId || 'unknown';
       const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
-      
+
       console.log(`[${client} MCP] New SSE connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}, url: ${req.url}`);
       console.log(`[${client} MCP] Headers:`, JSON.stringify(req.headers, null, 2));
-      
+
       try {
+        // Intercept POST body for logging before SSE transport consumes it
+        if (req.method === 'POST') {
+          const chunks: Buffer[] = [];
+
+          req.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+
+          await new Promise<void>((resolve) => {
+            req.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              if (body) {
+                console.log(`[${client} MCP] 🎯 INTERCEPTED POST BODY:`, body);
+                try {
+                  const jsonData = JSON.parse(body);
+                  logMCPMessage('RECV', client, jsonData, sessionId.toString());
+                } catch (error) {
+                  console.log(`[${client} MCP] Non-JSON POST data:`, body);
+                }
+              }
+              resolve();
+            });
+          });
+
+          // Re-create the request stream from the captured body for the SSE transport
+          const { Readable } = require('stream');
+          const newReq = new Readable();
+          newReq.push(Buffer.concat(chunks));
+          newReq.push(null);
+
+          // Copy original request properties to the new stream
+          Object.assign(newReq, req);
+          req = newReq; // Replace the original request object
+        }
+
         // Create SSE transport with message logging
         const transport = new SSEServerTransport('/sse', res);
-        
+
         // Add message interceptors for detailed logging
         const originalSend = transport.send.bind(transport);
         transport.send = (message: any) => {
           logMCPMessage('SEND', client, message, sessionId.toString());
           return originalSend(message);
         };
-        
+
         // Connect MCP server to transport
         await this.server.connect(transport);
-        
+
         console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
         console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
-        
+
         // Handle client disconnect
         req.on('close', () => {
           console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
         });
-        
+
       } catch (error) {
         console.error(`[${client} MCP] SSE connection error for session ${sessionId}:`, error);
         console.error(`[${client} MCP] Error details:`, error instanceof Error ? error.stack : error);
-        
+
         if (!res.headersSent) {
           res.status(500).json({ error: 'Failed to establish SSE connection' });
         } else {
@@ -437,17 +472,7 @@ class GHLMCPHttpServer {
 
     // Handle both GET and POST for SSE (MCP protocol requirements)
     this.app.get('/sse', handleSSEWithLogging);
-    this.app.post('/sse', (req: any, res: any) => {
-      // Capture body without middleware that might interfere with SSE transport
-      const isElevenLabs = req.url?.includes('/elevenlabs') || req.headers['user-agent']?.includes('python-httpx');
-      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
-      const sessionId = req.query.sessionId || 'unknown';
-      
-      console.log(`[${client} MCP] POST request received, handling with SSE transport...`);
-      
-      // Call the regular handler directly without body middleware
-      handleSSEWithLogging(req, res);
-    });
+    this.app.post('/sse', handleSSEWithLogging);
 
     // ElevenLabs MCP endpoint - Direct alias to the enhanced SSE handler
     this.app.get('/elevenlabs', handleSSEWithLogging);
