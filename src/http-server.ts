@@ -435,15 +435,42 @@ class GHLMCPHttpServer {
       }
     };
 
-    // Store active SSE connections
-    const activeConnections = new Map<string, any>();
+    // Store active MCP transports for each session
+    const activeTransports = new Map<string, any>();
     
     // Handle GET for SSE connection establishment
-    this.app.get('/sse', (req, res) => {
+    this.app.get('/sse', async (req, res) => {
       const sessionId = req.query.sessionId || 'unknown';
-      handleSSEWithLogging(req, res);
-      // Store the connection for this session
-      activeConnections.set(sessionId.toString(), res);
+      const isElevenLabs = req.headers['user-agent']?.includes('python-httpx');
+      const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
+      
+      console.log(`[${client} MCP] Establishing SSE connection for session: ${sessionId}`);
+      
+      // Create SSE transport and connect MCP server
+      const transport = new SSEServerTransport('/sse', res);
+      
+      // Add message interceptors for logging
+      const originalSend = transport.send.bind(transport);
+      transport.send = (message: any) => {
+        console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+        console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        return originalSend(message);
+      };
+      
+      // Connect MCP server to transport
+      await this.server.connect(transport);
+      
+      // Store the transport for POST message handling
+      activeTransports.set(sessionId.toString(), transport);
+      
+      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+      console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
+      
+      // Clean up on disconnect
+      req.on('close', () => {
+        console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
+        activeTransports.delete(sessionId.toString());
+      });
     });
     
     // Handle POST for MCP messages
@@ -458,8 +485,46 @@ class GHLMCPHttpServer {
       if (req.body) {
         logMCPMessage('RECV', client, req.body, sessionId.toString());
         
-        // TODO: Process the message through the MCP server
-        // For now, just acknowledge receipt
+        // Get the transport for this session
+        const transport = activeTransports.get(sessionId.toString());
+        if (transport) {
+          // The transport should handle the message internally
+          // Since we can't directly send to the server, we'll send a manual response for now
+          if (req.body.method === 'initialize') {
+            const response = {
+              jsonrpc: '2.0',
+              id: req.body.id,
+              result: {
+                protocolVersion: '2024-11-05', // Using our server's version
+                capabilities: {
+                  tools: {}
+                },
+                serverInfo: {
+                  name: 'ghl-mcp-server',
+                  version: '1.0.0'
+                }
+              }
+            };
+            // Send response through SSE
+            transport.send(response);
+            console.log(`[${client} MCP] Sent initialize response`);
+          } else if (req.body.method === 'tools/list') {
+            const tools = this.getAllToolDefinitions();
+            const response = {
+              jsonrpc: '2.0',
+              id: req.body.id,
+              result: {
+                tools: tools
+              }
+            };
+            transport.send(response);
+            console.log(`[${client} MCP] Sent tools/list response with ${tools.length} tools`);
+          }
+        } else {
+          console.error(`[${client} MCP] No transport found for session: ${sessionId}`);
+        }
+        
+        // Acknowledge the POST request
         res.status(200).json({ status: 'received' });
       } else {
         res.status(400).json({ error: 'No body received' });
@@ -467,10 +532,37 @@ class GHLMCPHttpServer {
     });
 
     // ElevenLabs MCP endpoint - Same pattern as /sse
-    this.app.get('/elevenlabs', (req, res) => {
+    this.app.get('/elevenlabs', async (req, res) => {
       const sessionId = req.query.sessionId || 'unknown';
-      handleSSEWithLogging(req, res);
-      activeConnections.set(sessionId.toString(), res);
+      const client = 'ElevenLabs';
+      
+      console.log(`[${client} MCP] Establishing SSE connection for session: ${sessionId}`);
+      
+      // Create SSE transport and connect MCP server
+      const transport = new SSEServerTransport('/sse', res);
+      
+      // Add message interceptors for logging
+      const originalSend = transport.send.bind(transport);
+      transport.send = (message: any) => {
+        console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+        console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        return originalSend(message);
+      };
+      
+      // Connect MCP server to transport
+      await this.server.connect(transport);
+      
+      // Store the transport for POST message handling
+      activeTransports.set(sessionId.toString(), transport);
+      
+      console.log(`[${client} MCP] SSE connection established for session: ${sessionId}`);
+      console.log(`[${client} MCP] Available tools: ${this.getToolsCount().total}`);
+      
+      // Clean up on disconnect
+      req.on('close', () => {
+        console.log(`[${client} MCP] SSE connection closed for session: ${sessionId}`);
+        activeTransports.delete(sessionId.toString());
+      });
     });
     
     this.app.post('/elevenlabs', express.json(), async (req, res) => {
@@ -482,6 +574,43 @@ class GHLMCPHttpServer {
       
       if (req.body) {
         logMCPMessage('RECV', client, req.body, sessionId.toString());
+        
+        // Get the transport for this session
+        const transport = activeTransports.get(sessionId.toString());
+        if (transport) {
+          if (req.body.method === 'initialize') {
+            const response = {
+              jsonrpc: '2.0',
+              id: req.body.id,
+              result: {
+                protocolVersion: '2024-11-05',
+                capabilities: {
+                  tools: {}
+                },
+                serverInfo: {
+                  name: 'ghl-mcp-server',
+                  version: '1.0.0'
+                }
+              }
+            };
+            transport.send(response);
+            console.log(`[${client} MCP] Sent initialize response`);
+          } else if (req.body.method === 'tools/list') {
+            const tools = this.getAllToolDefinitions();
+            const response = {
+              jsonrpc: '2.0',
+              id: req.body.id,
+              result: {
+                tools: tools
+              }
+            };
+            transport.send(response);
+            console.log(`[${client} MCP] Sent tools/list response with ${tools.length} tools`);
+          }
+        } else {
+          console.error(`[${client} MCP] No transport found for session: ${sessionId}`);
+        }
+        
         res.status(200).json({ status: 'received' });
       } else {
         res.status(400).json({ error: 'No body received' });
