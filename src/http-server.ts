@@ -455,8 +455,17 @@ class GHLMCPHttpServer {
       // Add message interceptors for logging
       const originalSend = transport.send.bind(transport);
       transport.send = (message: any) => {
-        console.log(`[${client} MCP SEND] Session: ${sessionId}`);
-        console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        // Log concisely for tools/list responses to avoid rate limits
+        if (message.result?.tools && Array.isArray(message.result.tools)) {
+          console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+          console.log(`[${client} MCP SEND] tools/list response with ${message.result.tools.length} tools`);
+          // Log just tool names, not full schemas
+          const toolNames = message.result.tools.map((t: any) => t.name).slice(0, 10);
+          console.log(`[${client} MCP SEND] First 10 tools:`, toolNames.join(', '));
+        } else {
+          console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+          console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        }
         return originalSend(message);
       };
       
@@ -493,10 +502,18 @@ class GHLMCPHttpServer {
       const client = isElevenLabs ? 'ElevenLabs' : 'Claude/ChatGPT';
       
       console.log(`[${client} MCP] POST message received for session: ${sessionId}`);
-      console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      // Log request concisely
+      if (req.body?.method === 'tools/list') {
+        console.log(`[${client} MCP] POST body: tools/list request`);
+      } else {
+        console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      }
       
       if (req.body) {
-        logMCPMessage('RECV', client, req.body, sessionId.toString());
+        // Skip detailed logging for tools/list to avoid rate limits
+        if (req.body?.method !== 'tools/list') {
+          logMCPMessage('RECV', client, req.body, sessionId.toString());
+        }
         
         // Try to find the transport - ElevenLabs might not send matching session IDs
         let transport = activeTransports.get(sessionId.toString());
@@ -615,8 +632,17 @@ class GHLMCPHttpServer {
       // Add message interceptors for logging
       const originalSend = transport.send.bind(transport);
       transport.send = (message: any) => {
-        console.log(`[${client} MCP SEND] Session: ${sessionId}`);
-        console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        // Log concisely for tools/list responses to avoid rate limits
+        if (message.result?.tools && Array.isArray(message.result.tools)) {
+          console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+          console.log(`[${client} MCP SEND] tools/list response with ${message.result.tools.length} tools`);
+          // Log just tool names, not full schemas
+          const toolNames = message.result.tools.map((t: any) => t.name).slice(0, 10);
+          console.log(`[${client} MCP SEND] First 10 tools:`, toolNames.join(', '));
+        } else {
+          console.log(`[${client} MCP SEND] Session: ${sessionId}`);
+          console.log(`[${client} MCP SEND] Message:`, JSON.stringify(message, null, 2));
+        }
         return originalSend(message);
       };
       
@@ -650,10 +676,18 @@ class GHLMCPHttpServer {
       const client = 'ElevenLabs';
       
       console.log(`[${client} MCP] POST message received for session: ${sessionId}`);
-      console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      // Log request concisely
+      if (req.body?.method === 'tools/list') {
+        console.log(`[${client} MCP] POST body: tools/list request`);
+      } else {
+        console.log(`[${client} MCP] POST body:`, JSON.stringify(req.body, null, 2));
+      }
       
       if (req.body) {
-        logMCPMessage('RECV', client, req.body, sessionId.toString());
+        // Skip detailed logging for tools/list to avoid rate limits
+        if (req.body?.method !== 'tools/list') {
+          logMCPMessage('RECV', client, req.body, sessionId.toString());
+        }
         
         // Try to find the transport - ElevenLabs might not send matching session IDs
         let transport = activeTransports.get(sessionId.toString());
