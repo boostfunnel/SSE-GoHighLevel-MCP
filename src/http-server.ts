@@ -388,9 +388,97 @@ class GHLMCPHttpServer {
     this.app.get('/sse', handleSSE);
     this.app.post('/sse', handleSSE);
 
-    // ElevenLabs MCP endpoint - Uses exact same working implementation
-    this.app.get('/elevenlabs', handleSSE);
-    this.app.post('/elevenlabs', handleSSE);
+    // ElevenLabs MCP endpoint - Custom handler for ElevenLabs protocol
+    const handleElevenLabsMCP = async (req: express.Request, res: express.Response) => {
+      const sessionId = req.query.sessionId || 'elevenlabs';
+      console.log(`[ElevenLabs MCP] New connection from: ${req.ip}, sessionId: ${sessionId}, method: ${req.method}`);
+      
+      try {
+        // Set SSE headers for ElevenLabs
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Credentials': 'true'
+        });
+
+        // Send initial MCP handshake for ElevenLabs
+        const initializeResponse = {
+          jsonrpc: '2.0',
+          id: 1,
+          result: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: 'ghl-mcp-server',
+              version: '1.0.0'
+            }
+          }
+        };
+
+        res.write(`data: ${JSON.stringify(initializeResponse)}\n\n`);
+        console.log(`[ElevenLabs MCP] Sent initialize response for session: ${sessionId}`);
+
+        // Send tools list
+        const toolsResponse = {
+          jsonrpc: '2.0',
+          id: 2,
+          result: {
+            tools: this.getAllToolDefinitions()
+          }
+        };
+
+        res.write(`data: ${JSON.stringify(toolsResponse)}\n\n`);
+        console.log(`[ElevenLabs MCP] Sent tools list (${this.getAllToolDefinitions().length} tools) for session: ${sessionId}`);
+
+        // Keep connection alive
+        const keepAlive = setInterval(() => {
+          res.write(`data: {"type": "ping"}\n\n`);
+        }, 30000);
+
+        // Handle client disconnect
+        req.on('close', () => {
+          clearInterval(keepAlive);
+          console.log(`[ElevenLabs MCP] Connection closed for session: ${sessionId}`);
+        });
+
+        // Handle POST requests (JSON-RPC messages)
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk) => {
+            body += chunk.toString();
+          });
+          
+          req.on('end', () => {
+            try {
+              const message = JSON.parse(body);
+              console.log(`[ElevenLabs MCP] Received message:`, message);
+              
+              // Handle tool calls
+              if (message.method === 'tools/call') {
+                this.handleToolCall(message, res);
+              }
+            } catch (error) {
+              console.error(`[ElevenLabs MCP] Error processing message:`, error);
+            }
+          });
+        }
+
+      } catch (error) {
+        console.error(`[ElevenLabs MCP] Connection error for session ${sessionId}:`, error);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to establish ElevenLabs MCP connection' });
+        }
+      }
+    };
+
+    this.app.get('/elevenlabs', handleElevenLabsMCP);
+    this.app.post('/elevenlabs', handleElevenLabsMCP);
 
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
@@ -409,6 +497,132 @@ class GHLMCPHttpServer {
         documentation: 'https://github.com/your-repo/ghl-mcp-server'
       });
     });
+  }
+
+  /**
+   * Get all tool definitions for ElevenLabs
+   */
+  private getAllToolDefinitions() {
+    const contactTools = this.contactTools.getToolDefinitions();
+    const conversationTools = this.conversationTools.getToolDefinitions();
+    const blogTools = this.blogTools.getToolDefinitions();
+    const opportunityTools = this.opportunityTools.getToolDefinitions();
+    const calendarTools = this.calendarTools.getToolDefinitions();
+    const emailTools = this.emailTools.getToolDefinitions();
+    const locationTools = this.locationTools.getToolDefinitions();
+    const emailISVTools = this.emailISVTools.getToolDefinitions();
+    const socialMediaTools = this.socialMediaTools.getTools();
+    const mediaTools = this.mediaTools.getToolDefinitions();
+    const objectTools = this.objectTools.getToolDefinitions();
+    const associationTools = this.associationTools.getTools();
+    const customFieldV2Tools = this.customFieldV2Tools.getTools();
+    const workflowTools = this.workflowTools.getTools();
+    const surveyTools = this.surveyTools.getTools();
+    const storeTools = this.storeTools.getTools();
+    const productsTools = this.productsTools.getTools();
+    
+    return [
+      ...contactTools,
+      ...conversationTools,
+      ...blogTools,
+      ...opportunityTools,
+      ...calendarTools,
+      ...emailTools,
+      ...locationTools,
+      ...emailISVTools,
+      ...socialMediaTools,
+      ...mediaTools,
+      ...objectTools,
+      ...associationTools,
+      ...customFieldV2Tools,
+      ...workflowTools,
+      ...surveyTools,
+      ...storeTools,
+      ...productsTools
+    ];
+  }
+
+  /**
+   * Handle tool call for ElevenLabs
+   */
+  private async handleToolCall(message: any, res: express.Response) {
+    try {
+      const { name, arguments: args } = message.params;
+      console.log(`[ElevenLabs MCP] Executing tool: ${name}`);
+
+      let result: any;
+
+      // Route to appropriate tool handler (same logic as main server)
+      if (this.isContactTool(name)) {
+        result = await this.contactTools.executeTool(name, args || {});
+      } else if (this.isConversationTool(name)) {
+        result = await this.conversationTools.executeTool(name, args || {});
+      } else if (this.isBlogTool(name)) {
+        result = await this.blogTools.executeTool(name, args || {});
+      } else if (this.isOpportunityTool(name)) {
+        result = await this.opportunityTools.executeTool(name, args || {});
+      } else if (this.isCalendarTool(name)) {
+        result = await this.calendarTools.executeTool(name, args || {});
+      } else if (this.isEmailTool(name)) {
+        result = await this.emailTools.executeTool(name, args || {});
+      } else if (this.isLocationTool(name)) {
+        result = await this.locationTools.executeTool(name, args || {});
+      } else if (this.isEmailISVTool(name)) {
+        result = await this.emailISVTools.executeTool(name, args || {});
+      } else if (this.isSocialMediaTool(name)) {
+        result = await this.socialMediaTools.executeTool(name, args || {});
+      } else if (this.isMediaTool(name)) {
+        result = await this.mediaTools.executeTool(name, args || {});
+      } else if (this.isObjectTool(name)) {
+        result = await this.objectTools.executeTool(name, args || {});
+      } else if (this.isAssociationTool(name)) {
+        result = await this.associationTools.executeAssociationTool(name, args || {});
+      } else if (this.isCustomFieldV2Tool(name)) {
+        result = await this.customFieldV2Tools.executeCustomFieldV2Tool(name, args || {});
+      } else if (this.isWorkflowTool(name)) {
+        result = await this.workflowTools.executeWorkflowTool(name, args || {});
+      } else if (this.isSurveyTool(name)) {
+        result = await this.surveyTools.executeSurveyTool(name, args || {});
+      } else if (this.isStoreTool(name)) {
+        result = await this.storeTools.executeStoreTool(name, args || {});
+      } else if (this.isProductsTool(name)) {
+        result = await this.productsTools.executeProductsTool(name, args || {});
+      } else {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      // Send success response
+      const response = {
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }
+          ]
+        }
+      };
+
+      res.write(`data: ${JSON.stringify(response)}\n\n`);
+      console.log(`[ElevenLabs MCP] Tool ${name} executed successfully`);
+
+    } catch (error) {
+      console.error(`[ElevenLabs MCP] Error executing tool:`, error);
+      
+      // Send error response
+      const errorResponse = {
+        jsonrpc: '2.0',
+        id: message.id,
+        error: {
+          code: -32603,
+          message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+        }
+      };
+
+      res.write(`data: ${JSON.stringify(errorResponse)}\n\n`);
+    }
   }
 
   /**
