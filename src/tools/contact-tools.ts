@@ -610,7 +610,16 @@ export class ContactTools {
       throw new Error(response.error?.message || 'Failed to search contacts');
     }
 
-    return response.data!;
+    // Ensure we have a valid response structure
+    const data = response.data || { contacts: [], total: 0 };
+    
+    // Additional safety check
+    if (!Array.isArray(data.contacts)) {
+      console.error('[ContactTools] Invalid response structure:', data);
+      return { contacts: [], total: 0 };
+    }
+
+    return data;
   }
 
   private async getContact(contactId: string): Promise<GHLContact> {

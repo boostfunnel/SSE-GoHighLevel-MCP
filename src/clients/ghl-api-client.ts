@@ -618,7 +618,14 @@ export class GHLApiClient {
         payload
       );
 
-      return this.wrapResponse(response.data);
+      // Ensure the response has the expected structure
+      const responseData = response.data || {};
+      const validResponse: GHLSearchContactsResponse = {
+        contacts: Array.isArray(responseData.contacts) ? responseData.contacts : [],
+        total: responseData.total || 0
+      };
+
+      return this.wrapResponse(validResponse);
     } catch (error) {
       const axiosError = error as AxiosError<GHLErrorResponse>;
       process.stderr.write(`[GHL API] Search contacts error: ${JSON.stringify({
