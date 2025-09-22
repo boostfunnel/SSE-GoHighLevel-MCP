@@ -484,13 +484,23 @@ export class GHLApiClient {
         locationId: contactData.locationId || this.config.locationId
       };
 
+      console.log('[GHL API] Creating contact with payload:', JSON.stringify(payload, null, 2));
+      console.log('[GHL API] Using location ID:', payload.locationId);
+      console.log('[GHL API] API endpoint:', `${this.config.baseUrl}/contacts/`);
+
       const response: AxiosResponse<{ contact: GHLContact }> = await this.axiosInstance.post(
         '/contacts/',
         payload
       );
 
+      console.log('[GHL API] Contact created successfully:', JSON.stringify(response.data, null, 2));
       return this.wrapResponse(response.data.contact);
     } catch (error) {
+      console.error('[GHL API] Failed to create contact:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('[GHL API] Error response:', error.response?.data);
+        console.error('[GHL API] Error status:', error.response?.status);
+      }
       throw error;
     }
   }

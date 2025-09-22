@@ -296,14 +296,39 @@ class GHLMCPHttpServer {
    */
   private setupRoutes(): void {
     // Health check endpoint
-    this.app.get('/health', (req, res) => {
-      res.json({ 
-        status: 'healthy',
-        server: 'ghl-mcp-server',
-        version: '1.0.0',
-        timestamp: new Date().toISOString(),
-        tools: this.getToolsCount()
-      });
+    this.app.get('/health', async (req, res) => {
+      try {
+        // Test GHL API connection
+        const testResponse = await this.ghlClient.getLocationById(this.ghlClient.getConfig().locationId);
+        
+        res.json({ 
+          status: 'healthy',
+          server: 'ghl-mcp-server',
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          tools: this.getToolsCount(),
+          ghl: {
+            connected: testResponse.success,
+            locationId: this.ghlClient.getConfig().locationId,
+            locationName: testResponse.data?.location?.name || 'Unknown',
+            baseUrl: this.ghlClient.getConfig().baseUrl
+          }
+        });
+      } catch (error) {
+        res.json({ 
+          status: 'unhealthy',
+          server: 'ghl-mcp-server',
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          tools: this.getToolsCount(),
+          ghl: {
+            connected: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            locationId: this.ghlClient.getConfig().locationId,
+            baseUrl: this.ghlClient.getConfig().baseUrl
+          }
+        });
+      }
     });
 
     // MCP capabilities endpoint
@@ -576,10 +601,12 @@ class GHLMCPHttpServer {
             // Handle tool execution
             const { name, arguments: args } = req.body.params || {};
             console.log(`[${client} MCP] Tool call requested: ${name}`);
+            console.log(`[${client} MCP] Tool arguments:`, JSON.stringify(args, null, 2));
             
             try {
               // Execute the tool using the existing handlers
               const result = await this.executeToolCall(name, args);
+              console.log(`[${client} MCP] Tool execution result:`, JSON.stringify(result, null, 2));
               const response = {
                 jsonrpc: '2.0',
                 id: req.body.id,
@@ -747,10 +774,12 @@ class GHLMCPHttpServer {
             // Handle tool execution
             const { name, arguments: args } = req.body.params || {};
             console.log(`[${client} MCP] Tool call requested: ${name}`);
+            console.log(`[${client} MCP] Tool arguments:`, JSON.stringify(args, null, 2));
             
             try {
               // Execute the tool using the existing handlers
               const result = await this.executeToolCall(name, args);
+              console.log(`[${client} MCP] Tool execution result:`, JSON.stringify(result, null, 2));
               const response = {
                 jsonrpc: '2.0',
                 id: req.body.id,
