@@ -900,6 +900,39 @@ class GHLMCPHttpServer {
       });
     });
 
+    // Debug endpoint for calendar testing
+    this.app.get('/debug/test-calendar/:calendarId', async (req, res) => {
+      try {
+        const calendarId = req.params.calendarId;
+        console.log(`[DEBUG] Testing calendar access: ${calendarId}`);
+        
+        // Test 1: Get calendar info
+        const calendarResponse = await this.ghlClient.axiosInstance.get(`/calendars/${calendarId}`);
+        
+        // Test 2: Get free slots
+        const slotsResponse = await this.ghlClient.axiosInstance.get(`/calendars/${calendarId}/free-slots`, {
+          params: {
+            startDate: '2025-09-25',
+            endDate: '2025-09-25',
+            timezone: 'Asia/Singapore'
+          }
+        });
+        
+        res.json({
+          success: true,
+          calendar: calendarResponse.data,
+          freeSlots: slotsResponse.data
+        });
+      } catch (error: any) {
+        console.error(`[DEBUG] Calendar test failed:`, error.response?.data);
+        res.status(500).json({
+          error: error.message,
+          status: error.response?.status,
+          data: error.response?.data
+        });
+      }
+    });
+
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
       res.json({
