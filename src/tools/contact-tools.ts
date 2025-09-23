@@ -506,6 +506,18 @@ export class ContactTools {
         }
       },
       {
+        name: 'verify_phone_code',
+        description: 'Verify the 6-digit SMS code provided by user',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            phone: { type: 'string', description: 'Phone number being verified' },
+            code: { type: 'string', description: '6-digit verification code from SMS' }
+          },
+          required: ['phone', 'code']
+        }
+      },
+      {
         name: 'check_verification_status',
         description: 'Check if an email address has been verified recently',
         inputSchema: {
@@ -608,6 +620,8 @@ export class ContactTools {
           return await this.startEmailVerification(params);
         case 'verify_email_code':
           return await this.verifyEmailCode(params);
+        case 'verify_phone_code':
+          return await this.verifyPhoneCode(params);
         case 'check_verification_status':
           return await this.checkVerificationStatus(params);
       
@@ -1124,6 +1138,63 @@ export class ContactTools {
       }
     } catch (error) {
       console.error('[OTP] Verify code error:', error);
+      return {
+        success: false,
+        message: 'Verification failed. Please try again.'
+      };
+    }
+  }
+
+  private async verifyPhoneCode(params: { phone: string; code: string }) {
+    try {
+      // Find contact by phone
+      const contacts = await this.searchContacts({ query: params.phone, limit: 1 });
+      
+      if (contacts.contacts.length === 0) {
+        return {
+          success: false,
+          message: 'Contact not found. Please start verification first.'
+        };
+      }
+
+      const contact = contacts.contacts[0];
+      if (!contact.id) {
+        return {
+          success: false,
+          message: 'Contact found but missing ID'
+        };
+      }
+      
+      // Get the verification code from contact's custom fields
+      const verificationCodeField = contact.customFields?.find(field => field.id === 'verification_code');
+      const storedCode = verificationCodeField?.field_value as string;
+      
+      if (storedCode && storedCode === params.code) {
+        // Add verified tag - this will trigger the workflow to continue
+        await this.addContactTags({
+          contactId: contact.id,
+          tags: ['verified-phone']
+        });
+
+        // Remove pending tag
+        await this.removeContactTags({
+          contactId: contact.id,
+          tags: ['verification-pending']
+        });
+
+        return {
+          success: true,
+          message: 'Phone verified successfully!',
+          contactId: contact.id
+        };
+      } else {
+        return {
+          success: false,
+          message: 'Invalid verification code. Please check and try again.'
+        };
+      }
+    } catch (error) {
+      console.error('[OTP] Verify phone code error:', error);
       return {
         success: false,
         message: 'Verification failed. Please try again.'

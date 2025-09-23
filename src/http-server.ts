@@ -871,26 +871,32 @@ class GHLMCPHttpServer {
 
     // Webhook handlers for GHL verification workflow
     this.app.post('/webhook/code-sent', async (req, res) => {
-      const { contactId, code, email } = req.body;
-      console.log(`[Verification Webhook] Code sent to ${email} for contact ${contactId}`);
-      res.json({ received: true });
+      const { contactId, code, email, phone, method } = req.body;
+      const recipient = email || phone || 'unknown';
+      console.log(`[Verification Webhook] Code sent via ${method} to ${recipient} for contact ${contactId}`);
+      res.json({ received: true, method: method });
     });
 
     this.app.post('/webhook/verified', async (req, res) => {
-      const { contactId, email, status } = req.body;
-      console.log(`[Verification Webhook] Email verified: ${email} (${contactId})`);
+      const { contactId, email, phone, status, method } = req.body;
+      const recipient = email || phone || 'unknown';
+      console.log(`[Verification Webhook] ${method} verified: ${recipient} (${contactId})`);
       res.json({ 
         received: true,
-        message: 'Verification successful'
+        message: 'Verification successful',
+        method: method
       });
     });
 
     this.app.post('/webhook/verification-failed', async (req, res) => {
-      const { contactId, email, reason } = req.body;
-      console.log(`[Verification Webhook] Verification failed for ${email}: ${reason}`);
+      const { contactId, email, phone, reason, method } = req.body;
+      const recipient = email || phone || 'unknown';
+      console.log(`[Verification Webhook] ${method} verification failed for ${recipient}: ${reason}`);
       res.json({ 
         received: true,
-        message: 'Verification failed'
+        message: 'Verification failed',
+        method: method,
+        reason: reason
       });
     });
 
@@ -1134,7 +1140,7 @@ class GHLMCPHttpServer {
       'create_contact', 'search_contacts', 'get_contact', 'update_contact',
       'add_contact_tags', 'remove_contact_tags', 'delete_contact',
       // OTP/Verification
-      'start_email_verification', 'verify_email_code', 'check_verification_status',
+      'start_email_verification', 'verify_email_code', 'verify_phone_code', 'check_verification_status',
       // Task Management
       'get_contact_tasks', 'create_contact_task', 'get_contact_task', 'update_contact_task',
       'delete_contact_task', 'update_task_completion',
