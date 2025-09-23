@@ -869,6 +869,31 @@ class GHLMCPHttpServer {
       }
     });
 
+    // Webhook handlers for GHL verification workflow
+    this.app.post('/webhook/code-sent', async (req, res) => {
+      const { contactId, code, email } = req.body;
+      console.log(`[Verification Webhook] Code sent to ${email} for contact ${contactId}`);
+      res.json({ received: true });
+    });
+
+    this.app.post('/webhook/verified', async (req, res) => {
+      const { contactId, email, status } = req.body;
+      console.log(`[Verification Webhook] Email verified: ${email} (${contactId})`);
+      res.json({ 
+        received: true,
+        message: 'Verification successful'
+      });
+    });
+
+    this.app.post('/webhook/verification-failed', async (req, res) => {
+      const { contactId, email, reason } = req.body;
+      console.log(`[Verification Webhook] Verification failed for ${email}: ${reason}`);
+      res.json({ 
+        received: true,
+        message: 'Verification failed'
+      });
+    });
+
     // Root endpoint with server info
     this.app.get('/', (req, res) => {
       res.json({
@@ -1108,6 +1133,8 @@ class GHLMCPHttpServer {
       // Basic Contact Management
       'create_contact', 'search_contacts', 'get_contact', 'update_contact',
       'add_contact_tags', 'remove_contact_tags', 'delete_contact',
+      // OTP/Verification
+      'start_email_verification', 'verify_email_code', 'check_verification_status',
       // Task Management
       'get_contact_tasks', 'create_contact_task', 'get_contact_task', 'update_contact_task',
       'delete_contact_task', 'update_task_completion',

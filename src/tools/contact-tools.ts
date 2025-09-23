@@ -477,6 +477,44 @@ export class ContactTools {
           },
           required: ['contactId', 'workflowId']
         }
+      },
+
+      // OTP/Verification Tools
+      {
+        name: 'start_email_verification',
+        description: 'Start email verification process by triggering GHL workflow',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            email: { type: 'string', description: 'Email address to verify' },
+            firstName: { type: 'string', description: 'User first name (optional)' },
+            lastName: { type: 'string', description: 'User last name (optional)' }
+          },
+          required: ['email']
+        }
+      },
+      {
+        name: 'verify_email_code',
+        description: 'Verify the 6-digit code provided by user and add verified tag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            email: { type: 'string', description: 'Email address being verified' },
+            code: { type: 'string', description: '6-digit verification code from user' }
+          },
+          required: ['email', 'code']
+        }
+      },
+      {
+        name: 'check_verification_status',
+        description: 'Check if an email address has been verified recently',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            email: { type: 'string', description: 'Email address to check' }
+          },
+          required: ['email']
+        }
       }
     ];
   }
@@ -564,6 +602,14 @@ export class ContactTools {
           return await this.addContactToWorkflow(params as MCPAddContactToWorkflowParams);
         case 'remove_contact_from_workflow':
           return await this.removeContactFromWorkflow(params as MCPRemoveContactFromWorkflowParams);
+        
+        // OTP/Verification Tools
+        case 'start_email_verification':
+          return await this.startEmailVerification(params);
+        case 'verify_email_code':
+          return await this.verifyEmailCode(params);
+        case 'check_verification_status':
+          return await this.checkVerificationStatus(params);
       
       default:
           throw new Error(`Unknown tool: ${toolName}`);
@@ -977,5 +1023,145 @@ export class ContactTools {
     }
 
     return response.data!;
+  }
+
+  // OTP/Verification Implementation
+  private verificationCodes = new Map<string, string>();
+
+  private async startEmailVerification(params: { email: string; firstName?: string; lastName?: string }) {
+    try {
+      // Check if contact exists, create if not
+      const contacts = await this.searchContacts({ query: params.email, limit: 1 });
+      let contactId: string;
+
+      if (contacts.contacts.length > 0) {
+        const foundContact = contacts.contacts[0];
+        if (!foundContact.id) {
+          throw new Error('Contact found but missing ID');
+        }
+        contactId = foundContact.id;
+        console.log('[OTP] Found existing contact:', contactId);
+      } else {
+        // Create new contact
+        const newContact = await this.createContact({
+          email: params.email,
+          firstName: params.firstName || '',
+          lastName: params.lastName || '',
+          tags: ['verification-pending']
+        });
+        if (!newContact.id) {
+          throw new Error('Contact created but missing ID');
+        }
+        contactId = newContact.id;
+        console.log('[OTP] Created new contact:', contactId);
+      }
+
+      // Trigger verification workflow
+      await this.ghlClient.triggerWorkflow({
+        workflowId: process.env.GHL_VERIFICATION_WORKFLOW_ID || 'your-workflow-id',
+        contactId: contactId
+      });
+
+      return {
+        success: true,
+        message: 'Verification code sent to your email',
+        contactId: contactId,
+        instructions: 'Please check your email and provide the 6-digit code'
+      };
+    } catch (error) {
+      console.error('[OTP] Start verification error:', error);
+      throw new Error('Failed to start verification process');
+    }
+  }
+
+  private async verifyEmailCode(params: { email: string; code: string }) {
+    try {
+      // Find contact by email
+      const contacts = await this.searchContacts({ query: params.email, limit: 1 });
+      
+      if (contacts.contacts.length === 0) {
+        return {
+          success: false,
+          message: 'Contact not found. Please start verification first.'
+        };
+      }
+
+      const contact = contacts.contacts[0];
+      if (!contact.id) {
+        return {
+          success: false,
+          message: 'Contact found but missing ID'
+        };
+      }
+      
+      // Get the verification code from contact's custom fields
+      const verificationCodeField = contact.customFields?.find(field => field.id === 'verification_code');
+      const storedCode = verificationCodeField?.field_value as string;
+      
+      if (storedCode && storedCode === params.code) {
+        // Add verified tag - this will trigger the workflow to continue
+        await this.addContactTags({
+          contactId: contact.id,
+          tags: ['verified-email']
+        });
+
+        // Remove pending tag
+        await this.removeContactTags({
+          contactId: contact.id,
+          tags: ['verification-pending']
+        });
+
+        return {
+          success: true,
+          message: 'Email verified successfully!',
+          contactId: contact.id
+        };
+      } else {
+        return {
+          success: false,
+          message: 'Invalid verification code. Please check and try again.'
+        };
+      }
+    } catch (error) {
+      console.error('[OTP] Verify code error:', error);
+      return {
+        success: false,
+        message: 'Verification failed. Please try again.'
+      };
+    }
+  }
+
+  private async checkVerificationStatus(params: { email: string }) {
+    try {
+      const contacts = await this.searchContacts({ query: params.email, limit: 1 });
+      
+      if (contacts.contacts.length === 0) {
+        return {
+          verified: false,
+          exists: false,
+          message: 'Contact not found'
+        };
+      }
+
+      const contact = contacts.contacts[0];
+      const hasVerifiedTag = contact.tags?.includes('verified-email') || false;
+      const verificationField = contact.customFields?.find(field => field.id === 'verification_timestamp');
+      const verificationDate = verificationField?.field_value as string;
+
+      return {
+        verified: hasVerifiedTag,
+        exists: true,
+        contactId: contact.id,
+        verificationDate: verificationDate,
+        tags: contact.tags
+      };
+    } catch (error) {
+      console.error('[OTP] Check status error:', error);
+      return {
+        verified: false,
+        exists: false,
+        message: 'Error checking verification status'
+      };
+    }
   }
 } 

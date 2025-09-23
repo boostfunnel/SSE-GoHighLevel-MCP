@@ -6842,4 +6842,27 @@ export class GHLApiClient {
       throw error;
     }
   }
+
+  /**
+   * Trigger workflow for contact
+   * POST /contacts/{contactId}/workflow/{workflowId}
+   */
+  async triggerWorkflow(params: { workflowId: string; contactId: string }): Promise<GHLApiResponse<any>> {
+    try {
+      console.log('[GHL API] Triggering workflow:', params);
+      
+      const response = await this.axiosInstance.post(
+        `/contacts/${params.contactId}/workflow/${params.workflowId}`
+      );
+
+      console.log('[GHL API] Workflow triggered successfully');
+      return this.wrapResponse(response.data);
+    } catch (error) {
+      console.error('[GHL API] Failed to trigger workflow:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('[GHL API] Workflow error response:', error.response?.data);
+      }
+      throw error;
+    }
+  }
 } 
