@@ -907,10 +907,8 @@ class GHLMCPHttpServer {
         console.log(`[DEBUG] Testing calendar access: ${calendarId}`);
         
         // Use existing calendar tools to test access
-        const calendarTools = this.createCalendarTools();
-        
-        // Test free slots functionality
-        const testResult = await calendarTools.executeTool('get_free_slots', {
+        // Test free slots functionality  
+        const testResult = await this.calendarTools.executeTool('get_free_slots', {
           calendarId: calendarId,
           startDate: '2025-09-25',
           endDate: '2025-09-25',
