@@ -1123,6 +1123,22 @@ export class ContactTools {
         tags: ['email-code']
       });
 
+      // Trigger verification workflow if configured
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: new Date().toISOString()
+          });
+          console.log(`[Email Verification] Added contact ${contactId} to workflow ${workflowId}`);
+        } catch (workflowError) {
+          console.error('[Email Verification] Workflow trigger failed:', workflowError);
+          // Continue anyway - tag-based workflow might still work
+        }
+      }
+
       return {
         success: true,
         message: 'Email verification started - you have 5 minutes to enter the code',
@@ -1170,6 +1186,22 @@ export class ContactTools {
         tags: ['sms-code']
       });
 
+      // Trigger verification workflow if configured
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: new Date().toISOString()
+          });
+          console.log(`[SMS Verification] Added contact ${contactId} to workflow ${workflowId}`);
+        } catch (workflowError) {
+          console.error('[SMS Verification] Workflow trigger failed:', workflowError);
+          // Continue anyway - tag-based workflow might still work
+        }
+      }
+
       return {
         success: true,
         message: 'SMS verification started - you have 5 minutes to enter the code',
@@ -1216,6 +1248,22 @@ export class ContactTools {
         contactId: contactId,
         tags: ['whatsapp-code']
       });
+
+      // Trigger verification workflow if configured
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: new Date().toISOString()
+          });
+          console.log(`[WhatsApp Verification] Added contact ${contactId} to workflow ${workflowId}`);
+        } catch (workflowError) {
+          console.error('[WhatsApp Verification] Workflow trigger failed:', workflowError);
+          // Continue anyway - tag-based workflow might still work
+        }
+      }
 
       return {
         success: true,
