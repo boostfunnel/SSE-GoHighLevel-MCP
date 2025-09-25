@@ -662,43 +662,30 @@ export class ContactTools {
   }
 
   private async searchContacts(params: MCPSearchContactsParams): Promise<GHLSearchContactsResponse> {
-    try {
-      // If searching by email only, use email as query
-      const searchQuery = params.query || params.email || params.phone || '';
-      
-      console.log('[ContactTools] Search request:', { query: searchQuery, email: params.email, phone: params.phone });
-      
-      const response = await this.ghlClient.searchContacts({
-          locationId: this.ghlClient.getConfig().locationId,
-        query: searchQuery,
-        limit: params.limit || 25,
-        filters: {
-          ...(params.email && { email: params.email }),
-          ...(params.phone && { phone: params.phone })
-        }
-      });
-
-      if (!response.success) {
-        console.error('[ContactTools] Search failed:', response.error);
-        throw new Error(response.error?.message || 'Failed to search contacts');
+    const response = await this.ghlClient.searchContacts({
+        locationId: this.ghlClient.getConfig().locationId,
+      query: params.query,
+      limit: params.limit,
+      filters: {
+        ...(params.email && { email: params.email }),
+        ...(params.phone && { phone: params.phone })
       }
+    });
 
-      // Ensure we have a valid response structure
-      const data = response.data || { contacts: [], total: 0 };
-      
-      // Additional safety check
-      if (!Array.isArray(data.contacts)) {
-        console.error('[ContactTools] Invalid response structure:', data);
-        return { contacts: [], total: 0 };
-      }
+    if (!response.success) {
+      throw new Error(response.error?.message || 'Failed to search contacts');
+    }
 
-      console.log('[ContactTools] Search successful, found:', data.contacts.length, 'contacts');
-      return data;
-    } catch (error) {
-      console.error('[ContactTools] Search contacts error:', error);
-      // Return empty result instead of throwing
+    // Ensure we have a valid response structure
+    const data = response.data || { contacts: [], total: 0 };
+    
+    // Additional safety check
+    if (!Array.isArray(data.contacts)) {
+      console.error('[ContactTools] Invalid response structure:', data);
       return { contacts: [], total: 0 };
     }
+
+    return data;
   }
 
   private async getContact(contactId: string): Promise<GHLContact> {
