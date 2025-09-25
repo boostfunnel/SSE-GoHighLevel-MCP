@@ -123,7 +123,8 @@ class GHLMCPHttpServer {
       credentials: false
     }));
 
-    // JSON parsing handled manually for MCP routes to avoid body consumption
+    // JSON parsing for webhook routes only
+    this.app.use('/webhook', express.json());
 
     // Request logging
     this.app.use((req, res, next) => {
