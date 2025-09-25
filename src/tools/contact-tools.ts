@@ -1242,44 +1242,50 @@ export class ContactTools {
         };
       }
 
-      const contact = contacts.contacts[0];
-      if (!contact.id) {
+      const foundContact = contacts.contacts[0];
+      if (!foundContact.id) {
         return {
           success: false,
           message: 'Contact found but missing ID'
         };
       }
       
-      // Get the verification code from contact's custom fields
-      const verificationCodeField = contact.customFields?.find(field => field.id === 'verification_code');
+      // Get full contact details with all custom fields
+      const fullContact = await this.getContact(foundContact.id);
+      
+      // Get verification code field ID from environment or use name
+      const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
+      const verificationCodeField = fullContact.customFields?.find(field => 
+        field.id === verificationCodeFieldId || field.fieldKey === 'verification_code'
+      );
       const storedCode = verificationCodeField?.field_value as string;
       
       if (storedCode && storedCode === params.code) {
         // Remove method-specific tags
         await this.removeContactTags({
-          contactId: contact.id,
+          contactId: foundContact.id,
           tags: ['email-code', 'sms-code', 'whatsapp-code']
         });
 
         // Add verified tag based on method
         const verifiedTag = `verified-${params.method}`;
         await this.addContactTags({
-          contactId: contact.id,
+          contactId: foundContact.id,
           tags: [verifiedTag]
         });
 
-        // Clear verification code field
+        // Clear verification code field using the correct field ID
+        const clearFieldUpdate: Record<string, string> = {};
+        clearFieldUpdate[verificationCodeFieldId] = '';
         await this.updateContact({
-          contactId: contact.id,
-          customFields: {
-            'verification_code': ''
-          }
+          contactId: foundContact.id,
+          customFields: clearFieldUpdate
         });
 
         return {
           success: true,
           message: `${params.method.charAt(0).toUpperCase() + params.method.slice(1)} verified successfully!`,
-          contactId: contact.id,
+          contactId: foundContact.id,
           method: params.method
         };
       } else {
@@ -1318,24 +1324,46 @@ export class ContactTools {
         };
       }
 
+      // Get workflow ID from environment
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (!workflowId) {
+        console.error('[Resend Verification] GHL_VERIFICATION_WORKFLOW_ID not configured');
+        // Fallback to tag-based method if workflow ID not set
+        return await this.resendWithTags(contact.id, params);
+      }
+
+      try {
+        // Remove contact from verification workflow
+        await this.removeContactFromWorkflow({
+          contactId: contact.id,
+          workflowId: workflowId,
+          eventStartTime: new Date().toISOString()
+        });
+        
+        console.log(`[Resend Verification] Removed contact ${contact.id} from workflow ${workflowId}`);
+      } catch (workflowError) {
+        console.log('[Resend Verification] Contact not in workflow or removal failed, continuing...');
+      }
+
       // Remove existing verification tags
       await this.removeContactTags({
         contactId: contact.id,
         tags: ['email-code', 'sms-code', 'whatsapp-code']
       });
 
-      // Clear verification code field
+      // Clear verification code field using correct field ID
+      const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
+      const clearFieldUpdate: Record<string, string> = {};
+      clearFieldUpdate[verificationCodeFieldId] = '';
       await this.updateContact({
         contactId: contact.id,
-        customFields: {
-          'verification_code': ''
-        }
+        customFields: clearFieldUpdate
       });
 
       // Wait a moment for cleanup
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Start verification again based on method
+      // Start verification again based on method (this will add contact back to workflow via tags)
       switch (params.method) {
         case 'email':
           return await this.startEmailVerification({
@@ -1364,6 +1392,51 @@ export class ContactTools {
         success: false,
         message: 'Failed to resend verification code. Please try again.'
       };
+    }
+  }
+
+  // Fallback method if workflow management is not available
+  private async resendWithTags(contactId: string, params: { contact: string; method: string; firstName?: string; lastName?: string }) {
+    // Remove existing verification tags
+    await this.removeContactTags({
+      contactId: contactId,
+      tags: ['email-code', 'sms-code', 'whatsapp-code']
+    });
+
+    // Clear verification code field
+    const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
+    const clearFieldUpdate: Record<string, string> = {};
+    clearFieldUpdate[verificationCodeFieldId] = '';
+    await this.updateContact({
+      contactId: contactId,
+      customFields: clearFieldUpdate
+    });
+
+    // Wait a moment for cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Start verification again
+    switch (params.method) {
+      case 'email':
+        return await this.startEmailVerification({
+          email: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      case 'sms':
+        return await this.startSmsVerification({
+          phone: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      case 'whatsapp':
+        return await this.startWhatsAppVerification({
+          phone: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      default:
+        throw new Error(`Unknown verification method: ${params.method}`);
     }
   }
 
