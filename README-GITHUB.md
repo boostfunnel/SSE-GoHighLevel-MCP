@@ -1,3 +1,4 @@
+@ -1,249 +0,0 @@
 # 🚀 GoHighLevel MCP Server
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/mastanley13/GoHighLevel-MCP)
