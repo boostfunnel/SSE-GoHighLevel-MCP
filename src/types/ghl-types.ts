@@ -440,6 +440,7 @@ export interface MCPUpdateContactParams {
   email?: string;
   phone?: string;
   tags?: string[];
+  customFields?: Record<string, string>; // Field ID -> Field Value mapping
 }
 
 export interface MCPAddContactTagsParams {

@@ -11,6 +11,7 @@ import {
   MCPUpdateContactParams,
   MCPAddContactTagsParams,
   MCPRemoveContactTagsParams,
+  GHLCustomField,
   // Task Management
   MCPGetContactTasksParams,
   MCPCreateContactTaskParams,
@@ -109,7 +110,7 @@ export class ContactTools {
       },
       {
         name: 'update_contact',
-        description: 'Update contact information',
+        description: 'Update contact information including custom fields',
         inputSchema: {
           type: 'object',
           properties: {
@@ -118,7 +119,12 @@ export class ContactTools {
             lastName: { type: 'string', description: 'Contact last name' },
             email: { type: 'string', description: 'Contact email address' },
             phone: { type: 'string', description: 'Contact phone number' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to assign to contact' }
+            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to assign to contact' },
+            customFields: { 
+              type: 'object', 
+              description: 'Custom field updates as key-value pairs where key is field ID',
+              additionalProperties: { type: 'string' }
+            }
           },
           required: ['contactId']
         }
@@ -656,10 +662,13 @@ export class ContactTools {
   }
 
   private async searchContacts(params: MCPSearchContactsParams): Promise<GHLSearchContactsResponse> {
+    // If searching by email only, use email as query
+    const searchQuery = params.query || params.email || params.phone || '';
+    
     const response = await this.ghlClient.searchContacts({
         locationId: this.ghlClient.getConfig().locationId,
-      query: params.query,
-      limit: params.limit,
+      query: searchQuery,
+      limit: params.limit || 25,
       filters: {
         ...(params.email && { email: params.email }),
         ...(params.phone && { phone: params.phone })
@@ -693,12 +702,22 @@ export class ContactTools {
   }
 
   private async updateContact(params: MCPUpdateContactParams): Promise<GHLContact> {
+    // Prepare custom fields in GHL format if provided
+    let customFieldsArray: any[] | undefined = undefined;
+    if (params.customFields) {
+      customFieldsArray = Object.entries(params.customFields).map(([fieldId, value]) => ({
+        id: fieldId,
+        value: value
+      }));
+    }
+
     const response = await this.ghlClient.updateContact(params.contactId, {
       firstName: params.firstName,
       lastName: params.lastName,
       email: params.email,
       phone: params.phone,
-      tags: params.tags
+      tags: params.tags,
+      customFields: customFieldsArray
     });
 
     if (!response.success) {

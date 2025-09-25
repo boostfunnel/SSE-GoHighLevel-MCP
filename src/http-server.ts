@@ -869,6 +869,29 @@ class GHLMCPHttpServer {
       }
     });
 
+    // Webhook handler for GHL contact updates
+    this.app.post('/webhook/update-contact', async (req, res) => {
+      try {
+        const { contactId, customFields, tags } = req.body;
+        console.log(`[Contact Update Webhook] Updating contact ${contactId}`);
+        
+        const updateData: any = {};
+        if (customFields) updateData.customFields = customFields;
+        if (tags) updateData.tags = tags;
+        
+        const result = await this.contactTools.executeTool('update_contact', {
+          contactId: contactId,
+          ...updateData
+        });
+        
+        console.log(`[Contact Update Webhook] Success:`, result);
+        res.json({ success: true, result: result });
+      } catch (error) {
+        console.error(`[Contact Update Webhook] Error:`, error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Update failed' });
+      }
+    });
+
     // Webhook handlers for GHL verification workflow
     this.app.post('/webhook/code-sent', async (req, res) => {
       const { contactId, code, email, phone, method } = req.body;
