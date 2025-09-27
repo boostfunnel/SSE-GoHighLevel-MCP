@@ -1104,11 +1104,23 @@ export class ContactTools {
         console.log('[OTP] Created new contact:', contactId);
       }
 
-      // Trigger verification workflow
-      await this.ghlClient.triggerWorkflow({
-        workflowId: process.env.GHL_VERIFICATION_WORKFLOW_ID || 'your-workflow-id',
-        contactId: contactId
-      });
+      // Trigger verification workflow by adding contact to workflow
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: new Date().toISOString()
+          });
+          console.log('[OTP] Added contact to verification workflow:', workflowId);
+        } catch (workflowError) {
+          console.error('[OTP] Failed to add contact to workflow:', workflowError);
+          // Continue anyway - verification might still work with tags
+        }
+      } else {
+        console.warn('[OTP] GHL_VERIFICATION_WORKFLOW_ID not configured - emails may not send');
+      }
 
       return {
         success: true,
