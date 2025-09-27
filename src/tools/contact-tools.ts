@@ -1337,8 +1337,20 @@ export class ContactTools {
       if (verificationCodeFieldId) {
         // Method 1: Use environment variable field ID (most reliable)
         const fieldById = contact.customFields?.find(field => field.id === verificationCodeFieldId);
-        storedCode = fieldById?.field_value as string;
+        
+        // DEBUG: Log the entire field structure
+        console.log('[Verify Code] Found field structure:', JSON.stringify(fieldById, null, 2));
+        
+        // Try multiple possible property names for the value
+        storedCode = fieldById?.field_value as string || 
+                    (fieldById as any)?.value as string ||
+                    (fieldById as any)?.fieldValue as string ||
+                    (fieldById as any)?.customValue as string;
+        
         console.log('[Verify Code] Looking for field ID:', verificationCodeFieldId, 'Found:', !!fieldById);
+        console.log('[Verify Code] Raw field_value:', fieldById?.field_value);
+        console.log('[Verify Code] Raw value:', (fieldById as any)?.value);
+        console.log('[Verify Code] Extracted storedCode:', storedCode);
       }
       
       if (!storedCode) {
@@ -1348,15 +1360,28 @@ export class ContactTools {
           field.id === 'verification_code' ||
           (field as any).name === 'verification_code'
         );
-        storedCode = fieldByName?.field_value as string;
+        
+        storedCode = fieldByName?.field_value as string || 
+                    (fieldByName as any)?.value as string ||
+                    (fieldByName as any)?.fieldValue as string;
+        
         console.log('[Verify Code] Fallback search found field:', !!fieldByName);
+        if (fieldByName) {
+          console.log('[Verify Code] Fallback field structure:', JSON.stringify(fieldByName, null, 2));
+        }
       }
       
-      console.log('[Verify Code] Stored code exists:', !!storedCode, 'User code:', params.code);
+      console.log('[Verify Code] Final stored code exists:', !!storedCode, 'User code:', params.code);
       
-      if (!storedCode) {
+      if (!storedCode || storedCode.trim() === '') {
         console.error('[Verify Code] No verification code found in custom fields');
-        console.error('[Verify Code] Available custom fields:', contact.customFields?.map(f => ({ id: f.id, key: (f as any).key })));
+        console.error('[Verify Code] Available custom fields with values:', contact.customFields?.map(f => ({ 
+          id: f.id, 
+          key: (f as any).key,
+          field_value: f.field_value,
+          value: (f as any).value,
+          rawField: JSON.stringify(f)
+        })));
         return {
           success: false,
           message: 'No verification code found. Please start verification process first.'
