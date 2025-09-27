@@ -1280,8 +1280,14 @@ export class ContactTools {
   private async startSmsVerification(params: { phone: string; firstName?: string; lastName?: string }) {
     try {
       // Format phone number with country code
-      const formattedPhone = this.formatPhoneNumber(params.phone);
+      const phoneAnalysis = this.analyzePhoneNumber(params.phone);
+      const formattedPhone = phoneAnalysis.formattedPhone;
       console.log('[SMS Verification] Starting for:', params.phone, '→ formatted:', formattedPhone);
+      
+      // Note: In production, you should confirm country code with user
+      if (phoneAnalysis.needsCountryConfirmation) {
+        console.log('[SMS Verification] Country confirmation needed for:', params.phone, 'detected:', phoneAnalysis.detectedCountry);
+      }
       
       // Search for existing contact
       const contacts = await this.searchContacts({ query: formattedPhone, limit: 1 });
@@ -1350,8 +1356,14 @@ export class ContactTools {
   private async startWhatsAppVerification(params: { phone: string; firstName?: string; lastName?: string }) {
     try {
       // Format phone number with country code
-      const formattedPhone = this.formatPhoneNumber(params.phone);
+      const phoneAnalysis = this.analyzePhoneNumber(params.phone);
+      const formattedPhone = phoneAnalysis.formattedPhone;
       console.log('[WhatsApp Verification] Starting for:', params.phone, '→ formatted:', formattedPhone);
+      
+      // Note: In production, you should confirm country code with user
+      if (phoneAnalysis.needsCountryConfirmation) {
+        console.log('[WhatsApp Verification] Country confirmation needed for:', params.phone, 'detected:', phoneAnalysis.detectedCountry);
+      }
       
       // Search for existing contact
       const contacts = await this.searchContacts({ query: formattedPhone, limit: 1 });
