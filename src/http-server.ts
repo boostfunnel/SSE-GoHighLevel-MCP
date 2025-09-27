@@ -1192,8 +1192,9 @@ class GHLMCPHttpServer {
       // Basic Contact Management
       'create_contact', 'search_contacts', 'get_contact', 'update_contact',
       'add_contact_tags', 'remove_contact_tags', 'delete_contact',
-      // OTP/Verification
-      'start_email_verification', 'verify_email_code', 'verify_phone_code', 'check_verification_status',
+      // OTP/Verification Tools (Updated)
+      'start_email_verification', 'start_sms_verification', 'start_whatsapp_verification',
+      'verify_code', 'resend_verification_code', 'check_verification_status',
       // Task Management
       'get_contact_tasks', 'create_contact_task', 'get_contact_task', 'update_contact_task',
       'delete_contact_task', 'update_task_completion',
