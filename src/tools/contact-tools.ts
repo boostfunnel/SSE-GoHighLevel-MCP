@@ -1111,7 +1111,7 @@ export class ContactTools {
           await this.addContactToWorkflow({
             contactId: contactId,
             workflowId: workflowId,
-            eventStartTime: new Date().toISOString()
+            eventStartTime: new Date().toISOString().replace('Z', '+00:00')
           });
           console.log('[OTP] Added contact to verification workflow:', workflowId);
         } catch (workflowError) {
@@ -1281,7 +1281,7 @@ export class ContactTools {
           await this.removeContactFromWorkflow({
             contactId: contact.id,
             workflowId: workflowId,
-            eventStartTime: new Date().toISOString()
+            eventStartTime: new Date().toISOString().replace('Z', '+00:00')
           });
           console.log('[Resend Verification] Removed from workflow');
         } catch (workflowError) {
