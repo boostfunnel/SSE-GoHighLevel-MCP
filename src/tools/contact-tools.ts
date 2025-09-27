@@ -86,15 +86,16 @@ export class ContactTools {
       },
       {
         name: 'search_contacts',
-        description: 'Search for contacts with advanced filtering options',
+        description: 'Search for contacts by email or phone. IMPORTANT: Always use the "query" parameter for best results, regardless of whether searching by email or phone.',
         inputSchema: {
           type: 'object',
           properties: {
-            query: { type: 'string', description: 'Search query string' },
-            email: { type: 'string', description: 'Filter by email address' },
-            phone: { type: 'string', description: 'Filter by phone number' },
+            query: { type: 'string', description: 'Search query - use this for email addresses, phone numbers, or names. This is the primary search parameter.' },
+            email: { type: 'string', description: 'Email filter (deprecated - use query parameter instead for better reliability)' },
+            phone: { type: 'string', description: 'Phone filter (deprecated - use query parameter instead for better reliability)' },
             limit: { type: 'number', description: 'Maximum number of results (default: 25)' }
-          }
+          },
+          required: []
         }
       },
       {
