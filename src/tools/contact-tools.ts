@@ -542,16 +542,14 @@ export class ContactTools {
       },
       {
         name: 'resend_verification_code',
-        description: 'Resend verification code by restarting the verification process',
+        description: 'Resend verification code by clearing old code and restarting verification process',
         inputSchema: {
           type: 'object',
           properties: {
-            contact: { type: 'string', description: 'Email or phone number to resend verification to' },
-            method: { type: 'string', enum: ['email', 'sms', 'whatsapp'], description: 'Verification method' },
-            firstName: { type: 'string', description: 'Optional first name' },
-            lastName: { type: 'string', description: 'Optional last name' }
+            contactId: { type: 'string', description: 'Contact ID (from previous search_contacts call)' },
+            method: { type: 'string', enum: ['email', 'sms', 'whatsapp'], description: 'Verification method' }
           },
-          required: ['contact', 'method']
+          required: ['contactId', 'method']
         }
       },
       {
@@ -1419,91 +1417,76 @@ export class ContactTools {
   }
 
   /**
-   * Resend verification code by restarting the verification process
+   * Resend verification code - SIMPLIFIED APPROACH
+   * Just clears the old code and adds the verification tag again
    */
-  private async resendVerificationCode(params: { contact: string; method: string; firstName?: string; lastName?: string }) {
+  private async resendVerificationCode(params: { contactId: string; method: 'email' | 'sms' | 'whatsapp' }) {
     try {
-      console.log('[Resend Verification] Starting resend for:', params.contact, 'method:', params.method);
+      console.log(`[Resend Verification] Starting ${params.method} resend for contact:`, params.contactId);
       
-      // Search for the contact
-      const searchResult = await this.searchContacts({ query: params.contact });
+      // Get contact details to verify it exists
+      const contactResponse = await this.ghlClient.getContact(params.contactId);
       
-      if (!searchResult.contacts || searchResult.contacts.length === 0) {
+      if (!contactResponse.success || !contactResponse.data) {
         return {
           success: false,
           message: 'Contact not found'
         };
       }
 
-      const contact = searchResult.contacts[0];
-      
-      if (!contact.id) {
-        return {
-          success: false,
-          message: 'Contact found but missing ID'
-        };
-      }
-      
-      // Remove from workflow first (if configured)
-      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
-      if (workflowId) {
-        try {
-          await this.removeContactFromWorkflow({
-            contactId: contact.id,
-            workflowId: workflowId,
-            eventStartTime: this.getGHLTimestamp()
-          });
-          console.log('[Resend Verification] Removed from workflow');
-        } catch (workflowError) {
-          console.error('[Resend Verification] Failed to remove from workflow:', workflowError);
-          // Continue anyway
-        }
-      }
+      const contact = contactResponse.data;
+      console.log('[Resend Verification] Contact found:', contact.email || contact.phone);
 
-      // Clear all verification tags
-      await this.removeContactTags({
-        contactId: contact.id,
-        tags: ['email-code', 'sms-code', 'whatsapp-code', 'verification-pending']
-      });
-
-      // Clear verification code field
+      // Step 1: Clear verification code field
       const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
       const clearFieldUpdate: Record<string, string> = {};
       clearFieldUpdate[verificationCodeFieldId] = '';
+      
       await this.updateContact({
-        contactId: contact.id,
+        contactId: params.contactId,
         customFields: clearFieldUpdate
       });
+      console.log('[Resend Verification] Cleared verification code field');
 
-      // Wait for cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Step 2: Clear old verification tags
+      await this.removeContactTags({
+        contactId: params.contactId,
+        tags: ['email-code', 'sms-code', 'whatsapp-code', 'verified-email', 'verified-sms', 'verified-whatsapp', 'verification-pending']
+      });
+      console.log('[Resend Verification] Cleared verification tags');
 
-      // Restart verification based on method
-      switch (params.method) {
-        case 'email':
-          return await this.startEmailVerification({
-            email: params.contact,
-            firstName: params.firstName,
-            lastName: params.lastName
+      // Step 3: Add the verification tag to restart the process
+      const verificationTag = `${params.method}-code`;
+      await this.addContactTags({
+        contactId: params.contactId,
+        tags: [verificationTag]
+      });
+      console.log(`[Resend Verification] Added ${verificationTag} tag to restart verification`);
+
+      // Step 4: Trigger workflow if configured
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: params.contactId,
+            workflowId: workflowId,
+            eventStartTime: this.getGHLTimestamp()
           });
-        case 'sms':
-          return await this.startSmsVerification({
-            phone: params.contact,
-            firstName: params.firstName,
-            lastName: params.lastName
-          });
-        case 'whatsapp':
-          return await this.startWhatsAppVerification({
-            phone: params.contact,
-            firstName: params.firstName,
-            lastName: params.lastName
-          });
-        default:
-          return {
-            success: false,
-            message: `Unknown verification method: ${params.method}. Supported methods: email, sms, whatsapp`
-          };
+          console.log('[Resend Verification] Re-added contact to verification workflow');
+        } catch (workflowError) {
+          console.error('[Resend Verification] Failed to add to workflow:', workflowError);
+          // Continue anyway - tag-based verification should still work
+        }
       }
+
+      return {
+        success: true,
+        message: `${params.method.charAt(0).toUpperCase() + params.method.slice(1)} verification code resent successfully`,
+        contactId: params.contactId,
+        method: params.method,
+        instructions: `Please check your ${params.method === 'email' ? 'email' : params.method.toUpperCase()} for the new verification code`
+      };
+      
     } catch (error) {
       console.error('[Resend Verification] Error:', error);
       return {
