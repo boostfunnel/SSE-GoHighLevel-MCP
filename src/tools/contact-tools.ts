@@ -1107,6 +1107,108 @@ export class ContactTools {
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+00:00`;
   }
 
+  /**
+   * Comprehensive phone number formatting with country detection
+   * Returns: { formattedPhone: string, needsCountryConfirmation: boolean, detectedCountry?: string }
+   */
+  private analyzePhoneNumber(phone: string): { 
+    formattedPhone: string; 
+    needsCountryConfirmation: boolean; 
+    detectedCountry?: string;
+    suggestedFormat?: string;
+  } {
+    // Remove all non-digit characters except +
+    let cleaned = phone.replace(/[^\d+]/g, '');
+    
+    // If already has + and looks complete, still need confirmation
+    if (cleaned.startsWith('+')) {
+      const countryCode = this.detectCountryFromPhone(cleaned);
+      return {
+        formattedPhone: cleaned,
+        needsCountryConfirmation: !countryCode, // Still confirm if country unclear
+        detectedCountry: countryCode,
+        suggestedFormat: cleaned
+      };
+    }
+    
+    // Try to detect country from digits
+    const countryCode = this.detectCountryFromPhone(cleaned);
+    
+    if (countryCode) {
+      // Add + if country detected but missing
+      const formatted = cleaned.startsWith(countryCode.substring(1)) ? '+' + cleaned : countryCode + cleaned;
+      return {
+        formattedPhone: formatted,
+        needsCountryConfirmation: true, // Always confirm detected country
+        detectedCountry: countryCode,
+        suggestedFormat: formatted
+      };
+    }
+    
+    // No country detected - definitely needs confirmation
+    return {
+      formattedPhone: '+1' + cleaned, // Default to US, but will ask for confirmation
+      needsCountryConfirmation: true,
+      suggestedFormat: '+1' + cleaned
+    };
+  }
+
+  /**
+   * Detect country from phone number patterns
+   */
+  private detectCountryFromPhone(phone: string): string | undefined {
+    const digits = phone.replace(/[^\d]/g, '');
+    
+    // Common country codes and patterns
+    if (digits.startsWith('1') && (digits.length === 11 || digits.length === 10)) {
+      return '+1'; // US/Canada
+    }
+    if (digits.startsWith('65') && digits.length === 10) {
+      return '+65'; // Singapore
+    }
+    if (digits.startsWith('60') && (digits.length === 11 || digits.length === 12)) {
+      return '+60'; // Malaysia
+    }
+    if (digits.startsWith('44') && digits.length === 12) {
+      return '+44'; // UK
+    }
+    if (digits.startsWith('86') && digits.length === 13) {
+      return '+86'; // China
+    }
+    if (digits.startsWith('91') && digits.length === 12) {
+      return '+91'; // India
+    }
+    if (digits.startsWith('61') && digits.length === 11) {
+      return '+61'; // Australia
+    }
+    if (digits.startsWith('33') && digits.length === 11) {
+      return '+33'; // France
+    }
+    if (digits.startsWith('49') && digits.length === 12) {
+      return '+49'; // Germany
+    }
+    
+    return undefined; // Unknown country
+  }
+
+  /**
+   * Get country name from country code
+   */
+  private getCountryName(countryCode: string): string {
+    const countries: { [key: string]: string } = {
+      '+1': 'United States/Canada',
+      '+65': 'Singapore', 
+      '+60': 'Malaysia',
+      '+44': 'United Kingdom',
+      '+86': 'China',
+      '+91': 'India',
+      '+61': 'Australia',
+      '+33': 'France',
+      '+49': 'Germany'
+    };
+    return countries[countryCode] || 'Unknown Country';
+  }
+
   private async startEmailVerification(params: { email: string; firstName?: string; lastName?: string }) {
     try {
       // Check if contact exists, create if not
@@ -1177,10 +1279,12 @@ export class ContactTools {
    */
   private async startSmsVerification(params: { phone: string; firstName?: string; lastName?: string }) {
     try {
-      console.log('[SMS Verification] Starting for:', params.phone);
+      // Format phone number with country code
+      const formattedPhone = this.formatPhoneNumber(params.phone);
+      console.log('[SMS Verification] Starting for:', params.phone, '→ formatted:', formattedPhone);
       
       // Search for existing contact
-      const contacts = await this.searchContacts({ query: params.phone, limit: 1 });
+      const contacts = await this.searchContacts({ query: formattedPhone, limit: 1 });
       let contactId: string;
 
       if (contacts.contacts.length > 0) {
@@ -1194,7 +1298,7 @@ export class ContactTools {
         // Create new contact
         const newContact = await this.createContact({
           email: '', // Phone-only contact
-          phone: params.phone,
+          phone: formattedPhone,
           firstName: params.firstName || '',
           lastName: params.lastName || ''
         });
@@ -1245,10 +1349,12 @@ export class ContactTools {
    */
   private async startWhatsAppVerification(params: { phone: string; firstName?: string; lastName?: string }) {
     try {
-      console.log('[WhatsApp Verification] Starting for:', params.phone);
+      // Format phone number with country code
+      const formattedPhone = this.formatPhoneNumber(params.phone);
+      console.log('[WhatsApp Verification] Starting for:', params.phone, '→ formatted:', formattedPhone);
       
       // Search for existing contact
-      const contacts = await this.searchContacts({ query: params.phone, limit: 1 });
+      const contacts = await this.searchContacts({ query: formattedPhone, limit: 1 });
       let contactId: string;
 
       if (contacts.contacts.length > 0) {
@@ -1262,7 +1368,7 @@ export class ContactTools {
         // Create new contact
         const newContact = await this.createContact({
           email: '', // Phone-only contact
-          phone: params.phone,
+          phone: formattedPhone,
           firstName: params.firstName || '',
           lastName: params.lastName || ''
         });
