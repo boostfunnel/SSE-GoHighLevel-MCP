@@ -1534,4 +1534,49 @@ export class ContactTools {
       };
     }
   }
+
+  // Fallback method if workflow management is not available
+  private async resendWithTags(contactId: string, params: { contact: string; method: string; firstName?: string; lastName?: string }) {
+    // Remove existing verification tags
+    await this.removeContactTags({
+      contactId: contactId,
+      tags: ['email-code', 'sms-code', 'whatsapp-code']
+    });
+
+    // Clear verification code field
+    const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
+    const clearFieldUpdate: Record<string, string> = {};
+    clearFieldUpdate[verificationCodeFieldId] = '';
+    await this.updateContact({
+      contactId: contactId,
+      customFields: clearFieldUpdate
+    });
+
+    // Wait a moment for cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Start verification again
+    switch (params.method) {
+      case 'email':
+        return await this.startEmailVerification({
+          email: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      case 'sms':
+        return await this.startSmsVerification({
+          phone: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      case 'whatsapp':
+        return await this.startWhatsAppVerification({
+          phone: params.contact,
+          firstName: params.firstName,
+          lastName: params.lastName
+        });
+      default:
+        throw new Error(`Unknown verification method: ${params.method}`);
+    }
+  }
 } 
