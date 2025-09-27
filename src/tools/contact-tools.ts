@@ -1417,8 +1417,8 @@ export class ContactTools {
   }
 
   /**
-   * Resend verification code - SIMPLIFIED APPROACH
-   * Just clears the old code and adds the verification tag again
+   * Resend verification code - PROPER WORKFLOW RESET
+   * Step 1: Remove from workflow FIRST, then clear fields/tags, then restart
    */
   private async resendVerificationCode(params: { contactId: string; method: 'email' | 'sms' | 'whatsapp' }) {
     try {
@@ -1437,7 +1437,28 @@ export class ContactTools {
       const contact = contactResponse.data;
       console.log('[Resend Verification] Contact found:', contact.email || contact.phone);
 
-      // Step 1: Clear verification code field
+      // STEP 1: Remove from workflow FIRST (most important step)
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.removeContactFromWorkflow({
+            contactId: params.contactId,
+            workflowId: workflowId,
+            eventStartTime: this.getGHLTimestamp()
+          });
+          console.log('[Resend Verification] ✅ Removed from workflow first');
+        } catch (workflowError) {
+          console.error('[Resend Verification] ❌ Failed to remove from workflow:', workflowError);
+          // Don't continue if workflow removal fails - this could cause issues
+          return {
+            success: false,
+            message: 'Failed to reset verification workflow. Please try again.',
+            error: workflowError instanceof Error ? workflowError.message : String(workflowError)
+          };
+        }
+      }
+
+      // STEP 2: Clear verification code field
       const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
       const clearFieldUpdate: Record<string, string> = {};
       clearFieldUpdate[verificationCodeFieldId] = '';
@@ -1446,25 +1467,28 @@ export class ContactTools {
         contactId: params.contactId,
         customFields: clearFieldUpdate
       });
-      console.log('[Resend Verification] Cleared verification code field');
+      console.log('[Resend Verification] ✅ Cleared verification code field');
 
-      // Step 2: Clear old verification tags
+      // STEP 3: Clear old verification tags
       await this.removeContactTags({
         contactId: params.contactId,
         tags: ['email-code', 'sms-code', 'whatsapp-code', 'verified-email', 'verified-sms', 'verified-whatsapp', 'verification-pending']
       });
-      console.log('[Resend Verification] Cleared verification tags');
+      console.log('[Resend Verification] ✅ Cleared verification tags');
 
-      // Step 3: Add the verification tag to restart the process
+      // STEP 4: Wait for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('[Resend Verification] ✅ Cleanup wait completed');
+
+      // STEP 5: Add the verification tag to restart the process
       const verificationTag = `${params.method}-code`;
       await this.addContactTags({
         contactId: params.contactId,
         tags: [verificationTag]
       });
-      console.log(`[Resend Verification] Added ${verificationTag} tag to restart verification`);
+      console.log(`[Resend Verification] ✅ Added ${verificationTag} tag to restart verification`);
 
-      // Step 4: Trigger workflow if configured
-      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      // STEP 6: Re-add to workflow to trigger new verification
       if (workflowId) {
         try {
           await this.addContactToWorkflow({
@@ -1472,10 +1496,14 @@ export class ContactTools {
             workflowId: workflowId,
             eventStartTime: this.getGHLTimestamp()
           });
-          console.log('[Resend Verification] Re-added contact to verification workflow');
+          console.log('[Resend Verification] ✅ Re-added contact to verification workflow');
         } catch (workflowError) {
-          console.error('[Resend Verification] Failed to add to workflow:', workflowError);
-          // Continue anyway - tag-based verification should still work
+          console.error('[Resend Verification] ❌ Failed to re-add to workflow:', workflowError);
+          return {
+            success: false,
+            message: 'Failed to restart verification workflow. Please try again.',
+            error: workflowError instanceof Error ? workflowError.message : String(workflowError)
+          };
         }
       }
 
