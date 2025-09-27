@@ -524,6 +524,20 @@ export class ContactTools {
         }
       },
       {
+        name: 'resend_verification_code',
+        description: 'Resend verification code by restarting the verification process',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            contact: { type: 'string', description: 'Email or phone number to resend verification to' },
+            method: { type: 'string', enum: ['email', 'sms', 'whatsapp'], description: 'Verification method' },
+            firstName: { type: 'string', description: 'Optional first name' },
+            lastName: { type: 'string', description: 'Optional last name' }
+          },
+          required: ['contact', 'method']
+        }
+      },
+      {
         name: 'check_verification_status',
         description: 'Check if an email address has been verified recently',
         inputSchema: {
@@ -628,6 +642,8 @@ export class ContactTools {
           return await this.verifyEmailCode(params);
         case 'verify_phone_code':
           return await this.verifyPhoneCode(params);
+        case 'resend_verification_code':
+          return await this.resendVerificationCode(params);
         case 'check_verification_status':
           return await this.checkVerificationStatus(params);
       
@@ -1214,6 +1230,90 @@ export class ContactTools {
       return {
         success: false,
         message: 'Verification failed. Please try again.'
+      };
+    }
+  }
+
+  /**
+   * Resend verification code by restarting the verification process
+   */
+  private async resendVerificationCode(params: { contact: string; method: string; firstName?: string; lastName?: string }) {
+    try {
+      console.log('[Resend Verification] Starting resend for:', params.contact, 'method:', params.method);
+      
+      // Search for the contact
+      const searchResult = await this.searchContacts({ query: params.contact });
+      
+      if (!searchResult.contacts || searchResult.contacts.length === 0) {
+        return {
+          success: false,
+          message: 'Contact not found'
+        };
+      }
+
+      const contact = searchResult.contacts[0];
+      
+      if (!contact.id) {
+        return {
+          success: false,
+          message: 'Contact found but missing ID'
+        };
+      }
+      
+      // Remove from workflow first (if configured)
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.removeContactFromWorkflow({
+            contactId: contact.id,
+            workflowId: workflowId,
+            eventStartTime: new Date().toISOString()
+          });
+          console.log('[Resend Verification] Removed from workflow');
+        } catch (workflowError) {
+          console.error('[Resend Verification] Failed to remove from workflow:', workflowError);
+          // Continue anyway
+        }
+      }
+
+      // Clear all verification tags
+      await this.removeContactTags({
+        contactId: contact.id,
+        tags: ['email-code', 'sms-code', 'whatsapp-code', 'verification-pending']
+      });
+
+      // Clear verification code field
+      const verificationCodeFieldId = process.env.GHL_VERIFICATION_CODE_FIELD_ID || 'verification_code';
+      const clearFieldUpdate: Record<string, string> = {};
+      clearFieldUpdate[verificationCodeFieldId] = '';
+      await this.updateContact({
+        contactId: contact.id,
+        customFields: clearFieldUpdate
+      });
+
+      // Wait for cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Restart verification based on method
+      switch (params.method) {
+        case 'email':
+          return await this.startEmailVerification({
+            email: params.contact,
+            firstName: params.firstName,
+            lastName: params.lastName
+          });
+        default:
+          return {
+            success: false,
+            message: `${params.method} verification resend is not supported yet. Only email verification is currently available.`
+          };
+      }
+    } catch (error) {
+      console.error('[Resend Verification] Error:', error);
+      return {
+        success: false,
+        message: 'Failed to resend verification code',
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
