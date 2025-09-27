@@ -1341,9 +1341,9 @@ export class ContactTools {
         // DEBUG: Log the entire field structure
         console.log('[Verify Code] Found field structure:', JSON.stringify(fieldById, null, 2));
         
-        // Try multiple possible property names for the value
-        storedCode = fieldById?.field_value as string || 
-                    (fieldById as any)?.value as string ||
+        // GHL uses "value" property, not "field_value"
+        storedCode = (fieldById as any)?.value as string || 
+                    fieldById?.field_value as string ||
                     (fieldById as any)?.fieldValue as string ||
                     (fieldById as any)?.customValue as string;
         
@@ -1361,8 +1361,8 @@ export class ContactTools {
           (field as any).name === 'verification_code'
         );
         
-        storedCode = fieldByName?.field_value as string || 
-                    (fieldByName as any)?.value as string ||
+        storedCode = (fieldByName as any)?.value as string ||
+                    fieldByName?.field_value as string || 
                     (fieldByName as any)?.fieldValue as string;
         
         console.log('[Verify Code] Fallback search found field:', !!fieldByName);
