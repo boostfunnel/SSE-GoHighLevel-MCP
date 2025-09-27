@@ -502,6 +502,32 @@ export class ContactTools {
         }
       },
       {
+        name: 'start_sms_verification',
+        description: 'Start SMS verification process by adding sms-code tag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            phone: { type: 'string', description: 'Phone number to verify' },
+            firstName: { type: 'string', description: 'User first name (optional)' },
+            lastName: { type: 'string', description: 'User last name (optional)' }
+          },
+          required: ['phone']
+        }
+      },
+      {
+        name: 'start_whatsapp_verification',
+        description: 'Start WhatsApp verification process by adding whatsapp-code tag',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            phone: { type: 'string', description: 'Phone number to verify' },
+            firstName: { type: 'string', description: 'User first name (optional)' },
+            lastName: { type: 'string', description: 'User last name (optional)' }
+          },
+          required: ['phone']
+        }
+      },
+      {
         name: 'verify_email_code',
         description: 'Verify the 6-digit code provided by user and add verified tag',
         inputSchema: {
@@ -640,6 +666,10 @@ export class ContactTools {
         // OTP/Verification Tools
         case 'start_email_verification':
           return await this.startEmailVerification(params);
+        case 'start_sms_verification':
+          return await this.startSmsVerification(params);
+        case 'start_whatsapp_verification':
+          return await this.startWhatsAppVerification(params);
         case 'verify_email_code':
           return await this.verifyEmailCode(params);
         case 'verify_phone_code':
@@ -1076,6 +1106,22 @@ export class ContactTools {
   // OTP/Verification Implementation
   private verificationCodes = new Map<string, string>();
 
+  /**
+   * Helper function to create proper GHL timezone format
+   */
+  private getGHLTimestamp(): string {
+    const now = new Date();
+    // Format as YYYY-MM-DDTHH:MM:SS+00:00 (GHL requires this exact format)
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(now.getUTCDate()).padStart(2, '0');
+    const hours = String(now.getUTCHours()).padStart(2, '0');
+    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+00:00`;
+  }
+
   private async startEmailVerification(params: { email: string; firstName?: string; lastName?: string }) {
     try {
       // Check if contact exists, create if not
@@ -1104,6 +1150,13 @@ export class ContactTools {
         console.log('[OTP] Created new contact:', contactId);
       }
 
+      // Add email-code tag (this will trigger GHL workflow via tag conditions)
+      await this.addContactTags({
+        contactId: contactId,
+        tags: ['email-code']
+      });
+      console.log('[Email Verification] Added email-code tag');
+
       // Trigger verification workflow by adding contact to workflow
       const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
       if (workflowId) {
@@ -1111,7 +1164,7 @@ export class ContactTools {
           await this.addContactToWorkflow({
             contactId: contactId,
             workflowId: workflowId,
-            eventStartTime: new Date().toISOString().replace('Z', '+00:00')
+            eventStartTime: this.getGHLTimestamp()
           });
           console.log('[OTP] Added contact to verification workflow:', workflowId);
         } catch (workflowError) {
@@ -1131,6 +1184,142 @@ export class ContactTools {
     } catch (error) {
       console.error('[OTP] Start verification error:', error);
       throw new Error('Failed to start verification process');
+    }
+  }
+
+  /**
+   * Start SMS verification process by adding sms-code tag
+   */
+  private async startSmsVerification(params: { phone: string; firstName?: string; lastName?: string }) {
+    try {
+      console.log('[SMS Verification] Starting for:', params.phone);
+      
+      // Search for existing contact
+      const contacts = await this.searchContacts({ query: params.phone, limit: 1 });
+      let contactId: string;
+
+      if (contacts.contacts.length > 0) {
+        const foundContact = contacts.contacts[0];
+        if (!foundContact.id) {
+          throw new Error('Contact found but missing ID');
+        }
+        contactId = foundContact.id;
+        console.log('[SMS Verification] Found existing contact:', contactId);
+      } else {
+        // Create new contact
+        const newContact = await this.createContact({
+          email: '', // Phone-only contact
+          phone: params.phone,
+          firstName: params.firstName || '',
+          lastName: params.lastName || ''
+        });
+        if (!newContact.id) {
+          throw new Error('Contact created but missing ID');
+        }
+        contactId = newContact.id;
+        console.log('[SMS Verification] Created new contact:', contactId);
+      }
+
+      // Add sms-code tag (this will trigger GHL workflow via tag conditions)
+      await this.addContactTags({
+        contactId: contactId,
+        tags: ['sms-code']
+      });
+      console.log('[SMS Verification] Added sms-code tag');
+
+      // Trigger verification workflow by adding contact to workflow
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: this.getGHLTimestamp()
+          });
+          console.log('[SMS Verification] Added contact to verification workflow:', workflowId);
+        } catch (workflowError) {
+          console.error('[SMS Verification] Failed to add contact to workflow:', workflowError);
+          // Continue anyway - verification might still work with tags
+        }
+      }
+
+      return {
+        success: true,
+        message: 'SMS verification started. Please check your phone for the verification code.',
+        contactId: contactId,
+        instructions: 'Please check your SMS and provide the 6-digit code within 5 minutes'
+      };
+    } catch (error) {
+      console.error('[SMS Verification] Start verification error:', error);
+      throw new Error('Failed to start SMS verification process');
+    }
+  }
+
+  /**
+   * Start WhatsApp verification process by adding whatsapp-code tag
+   */
+  private async startWhatsAppVerification(params: { phone: string; firstName?: string; lastName?: string }) {
+    try {
+      console.log('[WhatsApp Verification] Starting for:', params.phone);
+      
+      // Search for existing contact
+      const contacts = await this.searchContacts({ query: params.phone, limit: 1 });
+      let contactId: string;
+
+      if (contacts.contacts.length > 0) {
+        const foundContact = contacts.contacts[0];
+        if (!foundContact.id) {
+          throw new Error('Contact found but missing ID');
+        }
+        contactId = foundContact.id;
+        console.log('[WhatsApp Verification] Found existing contact:', contactId);
+      } else {
+        // Create new contact
+        const newContact = await this.createContact({
+          email: '', // Phone-only contact
+          phone: params.phone,
+          firstName: params.firstName || '',
+          lastName: params.lastName || ''
+        });
+        if (!newContact.id) {
+          throw new Error('Contact created but missing ID');
+        }
+        contactId = newContact.id;
+        console.log('[WhatsApp Verification] Created new contact:', contactId);
+      }
+
+      // Add whatsapp-code tag (this will trigger GHL workflow via tag conditions)
+      await this.addContactTags({
+        contactId: contactId,
+        tags: ['whatsapp-code']
+      });
+      console.log('[WhatsApp Verification] Added whatsapp-code tag');
+
+      // Trigger verification workflow by adding contact to workflow
+      const workflowId = process.env.GHL_VERIFICATION_WORKFLOW_ID;
+      if (workflowId) {
+        try {
+          await this.addContactToWorkflow({
+            contactId: contactId,
+            workflowId: workflowId,
+            eventStartTime: this.getGHLTimestamp()
+          });
+          console.log('[WhatsApp Verification] Added contact to verification workflow:', workflowId);
+        } catch (workflowError) {
+          console.error('[WhatsApp Verification] Failed to add contact to workflow:', workflowError);
+          // Continue anyway - verification might still work with tags
+        }
+      }
+
+      return {
+        success: true,
+        message: 'WhatsApp verification started. Please check WhatsApp for the verification code.',
+        contactId: contactId,
+        instructions: 'Please check your WhatsApp and provide the 6-digit code within 5 minutes'
+      };
+    } catch (error) {
+      console.error('[WhatsApp Verification] Start verification error:', error);
+      throw new Error('Failed to start WhatsApp verification process');
     }
   }
 
@@ -1281,7 +1470,7 @@ export class ContactTools {
           await this.removeContactFromWorkflow({
             contactId: contact.id,
             workflowId: workflowId,
-            eventStartTime: new Date().toISOString().replace('Z', '+00:00')
+            eventStartTime: this.getGHLTimestamp()
           });
           console.log('[Resend Verification] Removed from workflow');
         } catch (workflowError) {
@@ -1316,10 +1505,22 @@ export class ContactTools {
             firstName: params.firstName,
             lastName: params.lastName
           });
+        case 'sms':
+          return await this.startSmsVerification({
+            phone: params.contact,
+            firstName: params.firstName,
+            lastName: params.lastName
+          });
+        case 'whatsapp':
+          return await this.startWhatsAppVerification({
+            phone: params.contact,
+            firstName: params.firstName,
+            lastName: params.lastName
+          });
         default:
           return {
             success: false,
-            message: `${params.method} verification resend is not supported yet. Only email verification is currently available.`
+            message: `Unknown verification method: ${params.method}. Supported methods: email, sms, whatsapp`
           };
       }
     } catch (error) {
