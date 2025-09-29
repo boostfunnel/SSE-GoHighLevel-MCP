@@ -1315,18 +1315,8 @@ export class ContactTools {
           contactId = foundContact.id;
           console.log('[SMS Verification] Found existing contact by phone:', contactId);
         } else {
-          // Create new contact with phone + valid placeholder email
-          const newContact = await this.createContact({
-            email: `sms.${Date.now()}@placeholder.com`, // Unique placeholder email
-            phone: formattedPhone,
-            firstName: params.firstName || '',
-            lastName: params.lastName || ''
-          });
-          if (!newContact.id) {
-            throw new Error('Contact created but missing ID');
-          }
-          contactId = newContact.id;
-          console.log('[SMS Verification] Created new contact with placeholder email:', contactId);
+          // For SMS-only verification without existing contact, require minimal email
+          throw new Error('SMS verification requires either existing contactId or contact with email. For phone-only contacts, use start_email_verification first or provide contactId parameter.');
         }
       }
 
@@ -1404,18 +1394,8 @@ export class ContactTools {
           contactId = foundContact.id;
           console.log('[WhatsApp Verification] Found existing contact by phone:', contactId);
         } else {
-          // Create new contact with phone + valid placeholder email
-          const newContact = await this.createContact({
-            email: `whatsapp.${Date.now()}@placeholder.com`, // Unique placeholder email
-            phone: formattedPhone,
-            firstName: params.firstName || '',
-            lastName: params.lastName || ''
-          });
-          if (!newContact.id) {
-            throw new Error('Contact created but missing ID');
-          }
-          contactId = newContact.id;
-          console.log('[WhatsApp Verification] Created new contact with placeholder email:', contactId);
+          // For WhatsApp-only verification without existing contact, require minimal email  
+          throw new Error('WhatsApp verification requires either existing contactId or contact with email. For phone-only contacts, use start_email_verification first or provide contactId parameter.');
         }
       }
 
