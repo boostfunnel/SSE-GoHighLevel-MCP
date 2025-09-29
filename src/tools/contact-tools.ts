@@ -509,7 +509,8 @@ export class ContactTools {
           properties: {
             phone: { type: 'string', description: 'Phone number to verify' },
             firstName: { type: 'string', description: 'User first name (optional)' },
-            lastName: { type: 'string', description: 'User last name (optional)' }
+            lastName: { type: 'string', description: 'User last name (optional)' },
+            contactId: { type: 'string', description: 'Existing contact ID to update with phone (widget flow - optional)' }
           },
           required: ['phone']
         }
@@ -522,7 +523,8 @@ export class ContactTools {
           properties: {
             phone: { type: 'string', description: 'Phone number to verify' },
             firstName: { type: 'string', description: 'User first name (optional)' },
-            lastName: { type: 'string', description: 'User last name (optional)' }
+            lastName: { type: 'string', description: 'User last name (optional)' },
+            contactId: { type: 'string', description: 'Existing contact ID to update with phone (widget flow - optional)' }
           },
           required: ['phone']
         }
@@ -1277,7 +1279,7 @@ export class ContactTools {
   /**
    * Start SMS verification process by adding sms-code tag
    */
-  private async startSmsVerification(params: { phone: string; firstName?: string; lastName?: string }) {
+  private async startSmsVerification(params: { phone: string; firstName?: string; lastName?: string; contactId?: string }) {
     try {
       // Format phone number with country code
       const phoneAnalysis = this.analyzePhoneNumber(params.phone);
@@ -1289,53 +1291,31 @@ export class ContactTools {
         console.log('[SMS Verification] Country confirmation needed for:', params.phone, 'detected:', phoneAnalysis.detectedCountry);
       }
       
-      // Universal approach: Try to find/update existing contact, create if needed
       let contactId: string;
       
-      // Step 1: Search by phone (finds contacts created with phone)
-      const phoneSearch = await this.searchContacts({ query: formattedPhone, limit: 1 });
-      
-      if (phoneSearch.contacts.length > 0) {
-        // Found contact by phone - use it
-        const foundContact = phoneSearch.contacts[0];
-        if (!foundContact.id) {
-          throw new Error('Contact found but missing ID');
-        }
-        contactId = foundContact.id;
-        console.log('[SMS Verification] Found existing contact by phone:', contactId);
+      // Widget flow: If contactId provided, update existing contact with phone
+      if (params.contactId) {
+        // Update existing contact with phone number (widget flow)
+        await this.updateContact({
+          contactId: params.contactId,
+          phone: formattedPhone
+        });
+        contactId = params.contactId;
+        console.log('[SMS Verification] Updated existing contact with phone:', contactId);
       } else {
-        // Step 2: Search by firstName (finds contacts created with email)
-        if (params.firstName) {
-          const nameSearch = await this.searchContacts({ query: params.firstName, limit: 10 });
-          const recentContact = nameSearch.contacts.find(contact => 
-            contact.firstName?.toLowerCase() === params.firstName?.toLowerCase() &&
-            !contact.phone // Contact without phone (likely from widget email flow)
-          );
-          
-          if (recentContact?.id) {
-            // Update existing contact with phone number
-            await this.updateContact({
-              contactId: recentContact.id,
-              phone: formattedPhone
-            });
-            contactId = recentContact.id;
-            console.log('[SMS Verification] Found contact by name and updated with phone:', contactId);
-          } else {
-            // Step 3: Create new contact with phone + placeholder email (GHL requirement)
-            const newContact = await this.createContact({
-              email: `${params.firstName?.toLowerCase() || 'sms'}.${Date.now()}@placeholder.com`, // Unique placeholder
-              phone: formattedPhone,
-              firstName: params.firstName || '',
-              lastName: params.lastName || ''
-            });
-            if (!newContact.id) {
-              throw new Error('Contact created but missing ID');
-            }
-            contactId = newContact.id;
-            console.log('[SMS Verification] Created new contact with placeholder email:', contactId);
+        // Legacy flow: Search by phone, create if needed
+        const phoneSearch = await this.searchContacts({ query: formattedPhone, limit: 1 });
+        
+        if (phoneSearch.contacts.length > 0) {
+          // Found contact by phone - use it
+          const foundContact = phoneSearch.contacts[0];
+          if (!foundContact.id) {
+            throw new Error('Contact found but missing ID');
           }
+          contactId = foundContact.id;
+          console.log('[SMS Verification] Found existing contact by phone:', contactId);
         } else {
-          // No firstName provided - create with phone + generated placeholder
+          // Create new contact with phone + valid placeholder email
           const newContact = await this.createContact({
             email: `sms.${Date.now()}@placeholder.com`, // Unique placeholder email
             phone: formattedPhone,
@@ -1346,7 +1326,7 @@ export class ContactTools {
             throw new Error('Contact created but missing ID');
           }
           contactId = newContact.id;
-          console.log('[SMS Verification] Created new contact with generated placeholder email:', contactId);
+          console.log('[SMS Verification] Created new contact with placeholder email:', contactId);
         }
       }
 
@@ -1388,7 +1368,7 @@ export class ContactTools {
   /**
    * Start WhatsApp verification process by adding whatsapp-code tag
    */
-  private async startWhatsAppVerification(params: { phone: string; firstName?: string; lastName?: string }) {
+  private async startWhatsAppVerification(params: { phone: string; firstName?: string; lastName?: string; contactId?: string }) {
     try {
       // Format phone number with country code
       const phoneAnalysis = this.analyzePhoneNumber(params.phone);
@@ -1400,53 +1380,31 @@ export class ContactTools {
         console.log('[WhatsApp Verification] Country confirmation needed for:', params.phone, 'detected:', phoneAnalysis.detectedCountry);
       }
       
-      // Universal approach: Try to find/update existing contact, create if needed
       let contactId: string;
       
-      // Step 1: Search by phone (finds contacts created with phone)
-      const phoneSearch = await this.searchContacts({ query: formattedPhone, limit: 1 });
-      
-      if (phoneSearch.contacts.length > 0) {
-        // Found contact by phone - use it
-        const foundContact = phoneSearch.contacts[0];
-        if (!foundContact.id) {
-          throw new Error('Contact found but missing ID');
-        }
-        contactId = foundContact.id;
-        console.log('[WhatsApp Verification] Found existing contact by phone:', contactId);
+      // Widget flow: If contactId provided, update existing contact with phone
+      if (params.contactId) {
+        // Update existing contact with phone number (widget flow)
+        await this.updateContact({
+          contactId: params.contactId,
+          phone: formattedPhone
+        });
+        contactId = params.contactId;
+        console.log('[WhatsApp Verification] Updated existing contact with phone:', contactId);
       } else {
-        // Step 2: Search by firstName (finds contacts created with email)
-        if (params.firstName) {
-          const nameSearch = await this.searchContacts({ query: params.firstName, limit: 10 });
-          const recentContact = nameSearch.contacts.find(contact => 
-            contact.firstName?.toLowerCase() === params.firstName?.toLowerCase() &&
-            !contact.phone // Contact without phone (likely from widget email flow)
-          );
-          
-          if (recentContact?.id) {
-            // Update existing contact with phone number
-            await this.updateContact({
-              contactId: recentContact.id,
-              phone: formattedPhone
-            });
-            contactId = recentContact.id;
-            console.log('[WhatsApp Verification] Found contact by name and updated with phone:', contactId);
-          } else {
-            // Step 3: Create new contact with phone + placeholder email (GHL requirement)
-            const newContact = await this.createContact({
-              email: `${params.firstName?.toLowerCase() || 'whatsapp'}.${Date.now()}@placeholder.com`, // Unique placeholder
-              phone: formattedPhone,
-              firstName: params.firstName || '',
-              lastName: params.lastName || ''
-            });
-            if (!newContact.id) {
-              throw new Error('Contact created but missing ID');
-            }
-            contactId = newContact.id;
-            console.log('[WhatsApp Verification] Created new contact with placeholder email:', contactId);
+        // Legacy flow: Search by phone, create if needed
+        const phoneSearch = await this.searchContacts({ query: formattedPhone, limit: 1 });
+        
+        if (phoneSearch.contacts.length > 0) {
+          // Found contact by phone - use it
+          const foundContact = phoneSearch.contacts[0];
+          if (!foundContact.id) {
+            throw new Error('Contact found but missing ID');
           }
+          contactId = foundContact.id;
+          console.log('[WhatsApp Verification] Found existing contact by phone:', contactId);
         } else {
-          // No firstName provided - create with phone + generated placeholder
+          // Create new contact with phone + valid placeholder email
           const newContact = await this.createContact({
             email: `whatsapp.${Date.now()}@placeholder.com`, // Unique placeholder email
             phone: formattedPhone,
@@ -1457,7 +1415,7 @@ export class ContactTools {
             throw new Error('Contact created but missing ID');
           }
           contactId = newContact.id;
-          console.log('[WhatsApp Verification] Created new contact with generated placeholder email:', contactId);
+          console.log('[WhatsApp Verification] Created new contact with placeholder email:', contactId);
         }
       }
 
