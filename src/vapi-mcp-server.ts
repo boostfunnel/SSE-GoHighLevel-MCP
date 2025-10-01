@@ -224,7 +224,7 @@ class VapiMCPServer {
         
         const response = {
           jsonrpc: '2.0',
-          id: req.body?.id || 1,
+          id: req.body?.id !== undefined ? req.body.id : 1,
           result: {
             protocolVersion: protocolVersion,
             capabilities: {
@@ -237,8 +237,17 @@ class VapiMCPServer {
           }
         };
         
-        console.log('[Vapi MCP] Sending initialize response');
+        console.log('[Vapi MCP] Sending initialize response with protocol:', protocolVersion);
+        console.log('[Vapi MCP] Response:', JSON.stringify(response, null, 2));
         res.json(response);
+        return;
+      }
+      
+      // Handle MCP initialized notification (no response needed)
+      if (method === 'initialized' || method === 'notifications/initialized') {
+        console.log('[Vapi MCP] Received initialized notification - handshake complete!');
+        // Notifications don't need a response, but we acknowledge receipt
+        res.status(200).send();
         return;
       }
       
