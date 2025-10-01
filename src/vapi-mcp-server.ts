@@ -254,7 +254,8 @@ class VapiMCPServer {
       // Handle MCP tools/list
       if (method === 'tools/list') {
         console.log('[Vapi MCP] Tools list requested at root');
-        const tools = this.getAllToolDefinitions();
+        // Use FILTERED tools for Vapi to prevent AI overwhelm
+        const tools = this.getFilteredToolDefinitions();
         
         const response = {
           jsonrpc: '2.0',
@@ -264,7 +265,7 @@ class VapiMCPServer {
           }
         };
         
-        console.log(`[Vapi MCP] Returning ${tools.length} tools`);
+        console.log(`[Vapi MCP] Returning ${tools.length} FILTERED tools (essential only)`);
         res.json(response);
         return;
       }
@@ -350,12 +351,13 @@ class VapiMCPServer {
       res.json(response);
     });
 
-    // MCP Tools List endpoint
+    // MCP Tools List endpoint (legacy)
     this.app.post('/mcp/tools/list', (req, res) => {
-      console.log('[Vapi MCP] Tools list request received');
+      console.log('[Vapi MCP] Tools list request received (legacy endpoint)');
       
       try {
-        const tools = this.getAllToolDefinitions();
+        // Use FILTERED tools for Vapi
+        const tools = this.getFilteredToolDefinitions();
         
         const response = {
           jsonrpc: '2.0',
@@ -365,7 +367,7 @@ class VapiMCPServer {
           }
         };
 
-        console.log(`[Vapi MCP] Returning ${tools.length} tools`);
+        console.log(`[Vapi MCP] Returning ${tools.length} FILTERED tools`);
         res.json(response);
       } catch (error) {
         console.error('[Vapi MCP] Error listing tools:', error);
@@ -499,7 +501,47 @@ class VapiMCPServer {
   }
 
   /**
-   * Get all tool definitions
+   * Get FILTERED tool definitions for Vapi (essential tools only)
+   * Vapi AI gets overwhelmed with 221 tools - limit to 15 essential ones
+   */
+  private getFilteredToolDefinitions() {
+    // Define essential tool names for sales/booking workflows
+    const essentialToolNames = [
+      // Contact Management (7 tools)
+      'search_contacts',
+      'get_contact',
+      'create_contact',
+      'upsert_contact',
+      'update_contact',
+      'add_contact_tags',
+      'remove_contact_tags',
+      // Verification (3 tools)
+      'start_email_verification',
+      'verify_code',
+      'resend_verification_code',
+      // Calendar (4 tools)
+      'get_free_slots',
+      'create_appointment',
+      'get_contact_appointments',
+      'update_appointment',
+      // Communication (2 tools)
+      'send_sms',
+      'send_email'
+    ];
+    
+    // Get all tools
+    const allTools = this.getAllToolDefinitions();
+    
+    // Filter to only essential tools
+    const filteredTools = allTools.filter(tool => essentialToolNames.includes(tool.name));
+    
+    console.log(`[Vapi MCP] Filtered tools: ${filteredTools.length}/${allTools.length} (essential only)`);
+    
+    return filteredTools;
+  }
+
+  /**
+   * Get all tool definitions (for non-Vapi clients or debugging)
    */
   private getAllToolDefinitions() {
     const contactTools = this.contactTools.getToolDefinitions();
