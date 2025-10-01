@@ -499,7 +499,7 @@ class VapiMCPServer {
     } else if (this.isProductsTool(name)) {
       return await this.productsTools.executeProductsTool(name, args || {});
     } else if (this.isInvoiceTool(name)) {
-      return await this.invoicesTools.executeInvoiceTool(name, args || {});
+      return await this.invoicesTools.handleToolCall(name, args || {});
     } else {
       throw new Error(`Unknown tool: ${name}`);
     }
