@@ -180,7 +180,7 @@ class VapiMCPServer {
       }
     });
 
-    // Root endpoint - server info
+    // Root endpoint - server info (GET)
     this.app.get('/', (req, res) => {
       res.json({
         name: 'GoHighLevel MCP Server for Vapi',
@@ -189,16 +189,129 @@ class VapiMCPServer {
         status: 'running',
         endpoints: {
           health: '/health',
-          initialize: '/mcp/initialize',
-          listTools: '/mcp/tools/list',
-          callTool: '/mcp/tools/call'
+          mcp: '/ (POST with MCP protocol messages)'
         },
         tools: this.getToolsCount(),
         documentation: 'https://github.com/your-repo/ghl-mcp-server'
       });
     });
 
-    // MCP Initialize endpoint
+    // Root endpoint - Handle MCP protocol messages (POST)
+    // Vapi sends MCP requests to root "/" path
+    this.app.post('/', async (req: express.Request, res: express.Response): Promise<void> => {
+      const method = req.body?.method;
+      console.log(`[Vapi MCP] Root POST received - Method: ${method || 'none'}`);
+      
+      if (!method) {
+        console.log('[Vapi MCP] No method in request body');
+        res.json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32600,
+            message: 'Invalid Request - no method specified'
+          }
+        });
+        return;
+      }
+      
+      // Handle MCP initialize
+      if (method === 'initialize') {
+        const clientVersion = req.body?.params?.protocolVersion || '2024-11-05';
+        const supportedVersions = ['2024-11-05', '2025-03-26'];
+        const protocolVersion = supportedVersions.includes(clientVersion) ? clientVersion : '2024-11-05';
+        
+        const response = {
+          jsonrpc: '2.0',
+          id: req.body?.id || 1,
+          result: {
+            protocolVersion: protocolVersion,
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: 'vapi-ghl-mcp-server',
+              version: '1.0.0'
+            }
+          }
+        };
+        
+        console.log('[Vapi MCP] Sending initialize response');
+        res.json(response);
+        return;
+      }
+      
+      // Handle MCP tools/list
+      if (method === 'tools/list') {
+        console.log('[Vapi MCP] Tools list requested at root');
+        const tools = this.getAllToolDefinitions();
+        
+        const response = {
+          jsonrpc: '2.0',
+          id: req.body?.id || 1,
+          result: {
+            tools: tools
+          }
+        };
+        
+        console.log(`[Vapi MCP] Returning ${tools.length} tools`);
+        res.json(response);
+        return;
+      }
+      
+      // Handle MCP tools/call
+      if (method === 'tools/call') {
+        const { name, arguments: args } = req.body?.params || {};
+        console.log(`[Vapi MCP] Tool call at root: ${name}`);
+        
+        try {
+          const result = await this.executeToolCall(name, args);
+          
+          const response = {
+            jsonrpc: '2.0',
+            id: req.body?.id || 1,
+            result: {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(result, null, 2)
+                }
+              ]
+            }
+          };
+          
+          console.log(`[Vapi MCP] Tool ${name} executed successfully`);
+          res.json(response);
+          return;
+        } catch (error) {
+          console.error(`[Vapi MCP] Tool ${name} failed:`, error);
+          
+          const errorResponse = {
+            jsonrpc: '2.0',
+            id: req.body?.id || 1,
+            error: {
+              code: -32603,
+              message: error instanceof Error ? error.message : 'Tool execution failed'
+            }
+          };
+          
+          res.status(500).json(errorResponse);
+          return;
+        }
+      }
+      
+      // Unknown method
+      console.log(`[Vapi MCP] Unknown method at root: ${method}`);
+      res.status(400).json({
+        jsonrpc: '2.0',
+        id: req.body?.id || 1,
+        error: {
+          code: -32601,
+          message: `Unknown method: ${method}`
+        }
+      });
+    });
+
+    // MCP Initialize endpoint (legacy /mcp/* paths)
     this.app.post('/mcp/initialize', (req, res) => {
       console.log('[Vapi MCP] Initialize request received');
       console.log('[Vapi MCP] Request body:', JSON.stringify(req.body, null, 2));
