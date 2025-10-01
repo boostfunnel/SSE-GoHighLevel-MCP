@@ -56,7 +56,10 @@ class VapiMCPServer {
   private port: number;
 
   constructor() {
-    this.port = parseInt(process.env.VAPI_MCP_PORT || process.env.PORT || '8001');
+    // Railway provides PORT env var - use it!
+    this.port = parseInt(process.env.PORT || process.env.VAPI_MCP_PORT || '3000');
+    
+    console.log(`[Vapi MCP] Using PORT: ${this.port} (from env: ${process.env.PORT || 'default'})`);
     
     // Initialize Express app
     this.app = express();
