@@ -201,9 +201,11 @@ class VapiMCPServer {
     this.app.post('/', async (req: express.Request, res: express.Response): Promise<void> => {
       const method = req.body?.method;
       console.log(`[Vapi MCP] Root POST received - Method: ${method || 'none'}`);
+      console.log(`[Vapi MCP] Full request body:`, JSON.stringify(req.body, null, 2));
       
       if (!method) {
         console.log('[Vapi MCP] No method in request body');
+        console.log('[Vapi MCP] Body was:', req.body);
         res.json({
           jsonrpc: '2.0',
           error: {
