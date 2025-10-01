@@ -521,22 +521,21 @@ class VapiMCPServer {
       'add_contact_tags',
       'remove_contact_tags',
       
-      // Verification (3 tools)
+      // Verification (6 tools) - Complete verification flow
       'start_email_verification',
+      'start_sms_verification',
+      'start_whatsapp_verification',
       'verify_code',
       'resend_verification_code',
+      'check_verification_status',
       
       // Calendar & Appointments (4 tools)
       'get_free_slots',
       'create_appointment',
       'get_contact_appointments',
-      'update_appointment',
-      
-      // Communication (2 tools)
-      'send_sms',
-      'send_email'
+      'update_appointment'
     ];
-    // TOTAL: 16 tools (PROVEN to work with Vapi)
+    // TOTAL: 17 tools (16 worked, added 3 verification, removed 2 communication)
     
     // Get all tools
     const allTools = this.getAllToolDefinitions();
