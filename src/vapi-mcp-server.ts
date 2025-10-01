@@ -25,6 +25,7 @@ import { WorkflowTools } from './tools/workflow-tools';
 import { SurveyTools } from './tools/survey-tools';
 import { StoreTools } from './tools/store-tools';
 import { ProductsTools } from './tools/products-tools.js';
+import { InvoicesTools } from './tools/invoices-tools';
 import { GHLConfig } from './types/ghl-types';
 
 // Load environment variables
@@ -53,6 +54,7 @@ class VapiMCPServer {
   private surveyTools: SurveyTools;
   private storeTools: StoreTools;
   private productsTools: ProductsTools;
+  private invoicesTools: InvoicesTools;
   private port: number;
 
   constructor() {
@@ -86,6 +88,7 @@ class VapiMCPServer {
     this.surveyTools = new SurveyTools(this.ghlClient);
     this.storeTools = new StoreTools(this.ghlClient);
     this.productsTools = new ProductsTools(this.ghlClient);
+    this.invoicesTools = new InvoicesTools(this.ghlClient);
     
     this.setupRoutes();
   }
@@ -495,6 +498,8 @@ class VapiMCPServer {
       return await this.storeTools.executeStoreTool(name, args || {});
     } else if (this.isProductsTool(name)) {
       return await this.productsTools.executeProductsTool(name, args || {});
+    } else if (this.isInvoiceTool(name)) {
+      return await this.invoicesTools.executeInvoiceTool(name, args || {});
     } else {
       throw new Error(`Unknown tool: ${name}`);
     }
@@ -502,12 +507,12 @@ class VapiMCPServer {
 
   /**
    * Get FILTERED tool definitions for Vapi (essential tools only)
-   * Vapi AI gets overwhelmed with 221 tools - limit to 15 essential ones
+   * Vapi AI gets overwhelmed with 221 tools - limit to ~40 essential ones
    */
   private getFilteredToolDefinitions() {
-    // Define essential tool names for sales/booking workflows
+    // Define essential tool names for complete sales/booking workflows
     const essentialToolNames = [
-      // Contact Management (7 tools)
+      // Contact Management (7 tools) - NO delete_contact per user request!
       'search_contacts',
       'get_contact',
       'create_contact',
@@ -515,18 +520,54 @@ class VapiMCPServer {
       'update_contact',
       'add_contact_tags',
       'remove_contact_tags',
-      // Verification (3 tools)
+      
+      // Verification (6 tools) - Complete verification flow
       'start_email_verification',
+      'start_sms_verification',
+      'start_whatsapp_verification',
       'verify_code',
       'resend_verification_code',
-      // Calendar (4 tools)
+      'check_verification_status',
+      
+      // Workflow Management (3 tools)
+      'ghl_get_workflows',
+      'add_contact_to_workflow',
+      'remove_contact_from_workflow',
+      
+      // Calendar & Appointments (7 tools)
       'get_free_slots',
+      'get_appointment',
       'create_appointment',
       'get_contact_appointments',
       'update_appointment',
+      'delete_appointment',
+      'get_calendar_events',
+      
+      // Appointment Notes (4 tools)
+      'get_appointment_notes',
+      'create_appointment_note',
+      'update_appointment_note',
+      'delete_appointment_note',
+      
+      // Contact Notes (5 tools)
+      'get_contact_notes',
+      'create_contact_note',
+      'get_contact_note',
+      'update_contact_note',
+      'delete_contact_note',
+      
       // Communication (2 tools)
       'send_sms',
-      'send_email'
+      'send_email',
+      
+      // Custom Fields (2 tools)
+      'get_location_custom_fields',
+      'get_location_custom_field',
+      
+      // Invoices (3 tools)
+      'get_invoice',
+      'create_invoice',
+      'list_invoices'
     ];
     
     // Get all tools
@@ -536,6 +577,7 @@ class VapiMCPServer {
     const filteredTools = allTools.filter(tool => essentialToolNames.includes(tool.name));
     
     console.log(`[Vapi MCP] Filtered tools: ${filteredTools.length}/${allTools.length} (essential only)`);
+    console.log(`[Vapi MCP] Security: delete_contact EXCLUDED per user requirement`);
     
     return filteredTools;
   }
@@ -561,6 +603,7 @@ class VapiMCPServer {
     const surveyTools = this.surveyTools.getTools();
     const storeTools = this.storeTools.getTools();
     const productsTools = this.productsTools.getTools();
+    const invoicesTools = this.invoicesTools.getTools();
     
     return [
       ...contactTools,
@@ -579,7 +622,8 @@ class VapiMCPServer {
       ...workflowTools,
       ...surveyTools,
       ...storeTools,
-      ...productsTools
+      ...productsTools,
+      ...invoicesTools
     ];
   }
 
@@ -605,6 +649,7 @@ class VapiMCPServer {
       surveys: this.surveyTools.getTools().length,
       store: this.storeTools.getTools().length,
       products: this.productsTools.getTools().length,
+      invoices: this.invoicesTools.getTools().length,
       total: this.contactTools.getToolDefinitions().length + 
              this.conversationTools.getToolDefinitions().length + 
              this.blogTools.getToolDefinitions().length +
@@ -621,7 +666,8 @@ class VapiMCPServer {
              this.workflowTools.getTools().length +
              this.surveyTools.getTools().length +
              this.storeTools.getTools().length +
-             this.productsTools.getTools().length
+             this.productsTools.getTools().length +
+             this.invoicesTools.getTools().length
     };
   }
 
@@ -782,6 +828,17 @@ class VapiMCPServer {
       'ghl_get_reviews_count', 'ghl_update_product_review', 'ghl_delete_product_review', 'ghl_bulk_update_product_reviews'
     ];
     return productsToolNames.includes(toolName);
+  }
+
+  private isInvoiceTool(toolName: string): boolean {
+    const invoiceToolNames = [
+      'create_invoice_template', 'list_invoice_templates', 'get_invoice_template', 
+      'update_invoice_template', 'delete_invoice_template', 'create_invoice_schedule',
+      'list_invoice_schedules', 'get_invoice_schedule', 'create_invoice', 
+      'list_invoices', 'get_invoice', 'send_invoice', 'create_invoice_from_estimate', 
+      'generate_invoice_number'
+    ];
+    return invoiceToolNames.includes(toolName);
   }
 
   /**
