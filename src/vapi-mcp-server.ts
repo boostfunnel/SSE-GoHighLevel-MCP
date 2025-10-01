@@ -510,41 +510,33 @@ class VapiMCPServer {
    * Vapi AI gets overwhelmed - limit to MAX 20 tools for optimal performance
    */
   private getFilteredToolDefinitions() {
-    // CRITICAL: Keep under 20 tools! Tested - 39 tools = AI freezes, 16 tools = works
+    // CRITICAL: Tested working limit = EXACTLY 16 tools (20+ causes AI freeze)
     const essentialToolNames = [
-      // Contact Management (5 tools) - NO delete_contact!
+      // Contact Management (7 tools) - NO delete_contact!
       'search_contacts',
       'get_contact',
+      'create_contact',
       'upsert_contact',
       'update_contact',
       'add_contact_tags',
+      'remove_contact_tags',
       
-      // Verification (4 tools)
+      // Verification (3 tools)
       'start_email_verification',
-      'start_sms_verification',
       'verify_code',
       'resend_verification_code',
       
-      // Workflow (2 tools)
-      'ghl_get_workflows',
-      'add_contact_to_workflow',
-      
-      // Calendar & Appointments (5 tools)
+      // Calendar & Appointments (4 tools)
       'get_free_slots',
       'create_appointment',
       'get_contact_appointments',
       'update_appointment',
-      'get_appointment_notes',
-      
-      // Invoices (2 tools)
-      'get_invoice',
-      'create_invoice',
       
       // Communication (2 tools)
       'send_sms',
       'send_email'
     ];
-    // TOTAL: 20 tools (tested limit for Vapi)
+    // TOTAL: 16 tools (PROVEN to work with Vapi)
     
     // Get all tools
     const allTools = this.getAllToolDefinitions();
@@ -552,8 +544,8 @@ class VapiMCPServer {
     // Filter to only essential tools
     const filteredTools = allTools.filter(tool => essentialToolNames.includes(tool.name));
     
-    console.log(`[Vapi MCP] Filtered tools: ${filteredTools.length}/${allTools.length} (CRITICAL LIMIT: 20)`);
-    console.log(`[Vapi MCP] Security: delete_contact EXCLUDED per user requirement`);
+    console.log(`[Vapi MCP] Filtered tools: ${filteredTools.length}/${allTools.length} (PROVEN WORKING: 16)`);
+    console.log(`[Vapi MCP] Security: delete_contact EXCLUDED`);
     
     return filteredTools;
   }
